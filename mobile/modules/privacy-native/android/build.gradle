@@ -1,0 +1,19 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.privacyscanner'
+version = '1.0.0'
+
+expoModule {
+  v2 true
+}
+
+android {
+  namespace "expo.modules.privacynative"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

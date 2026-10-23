@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""
+Export detection signatures from scan.py / detectors.py to JSON for the
+mobile app, so both tools share one source of truth.
+
+    python3 scripts/export_signatures.py   # writes mobile/src/data/signatures.json
+"""
+
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import detectors  # noqa: E402
+import scan  # noqa: E402
+
+
+def main() -> None:
+    data = {
+        "_generated_by": "scripts/export_signatures.py — do not edit by hand",
+        "tier1Ouis": scan.TIER1_OUIS,
+        "tier2Ouis": scan.TIER2_OUIS,
+        "cameraPorts": [int(p) for p in scan.CAMERA_PORTS.split(",")],
+        "rtspPorts": sorted(int(p) for p in scan.RTSP_PORTS),
+        "httpPorts": sorted(int(p) for p in scan.HTTP_PORTS),
+        "vendorPorts": sorted(int(p) for p in scan.VENDOR_PORTS),
+        "weakVendorPorts": sorted(int(p) for p in scan.WEAK_VENDOR_PORTS),
+        "rtspPaths": detectors.RTSP_PATHS,
+        "cameraKeywordsHigh": scan.CAMERA_KEYWORDS_HIGH,
+        "cameraHeaders": scan.CAMERA_HEADERS,
+        "cameraTitle": scan.CAMERA_TITLE_RE.pattern,
+        "cameraMfrKeywords": scan.CAMERA_MFR_KEYWORDS.pattern,
+        "cameraHostname": scan.CAMERA_HOSTNAME_RE.pattern,
+        "cameraNameStrong": detectors.CAMERA_NAME_STRONG.pattern,
+        "cameraNameWeak": detectors.CAMERA_NAME_WEAK.pattern,
+        "physicalChecklist": scan.PHYSICAL_CHECKLIST,
+    }
+    out = ROOT / "mobile" / "src" / "data" / "signatures.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"wrote {out.relative_to(ROOT)}")
+
+
+if __name__ == "__main__":
+    main()

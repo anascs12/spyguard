@@ -22,6 +22,7 @@ Usage:
 import argparse
 import glob as glob_mod
 import ipaddress
+import json
 import os
 import platform
 import re
@@ -30,7 +31,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import baseline as baseline_mod  # noqa: E402
+import detectors  # noqa: E402
+import evidence  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Optional imports with graceful degradation
@@ -104,7 +111,10 @@ CAMERA_PORTS = "554,8554,80,443,8080,8443,8000,8200,37777,34567,34599,9000,3702,
 
 RTSP_PORTS = {"554", "8554"}
 HTTP_PORTS = {"80", "443", "8080", "8443", "8899"}
-VENDOR_PORTS = {"8000", "8200", "37777", "34567", "34599", "9000"}
+# Proprietary camera protocols: rarely used by anything else
+VENDOR_PORTS = {"37777", "34567", "34599"}
+# Also camera ports (Hikvision SDK, Reolink) but common for dev servers, NAS, etc.
+WEAK_VENDOR_PORTS = {"8000", "8200", "9000"}
 
 # ---------------------------------------------------------------------------
 # nmap MAC prefix database paths
@@ -215,6 +225,11 @@ SAFE_MANUFACTURERS = re.compile(
 IOT_CHIPSETS = re.compile(r"espressif|tuya|smartlife|beken", re.IGNORECASE)
 GENERIC_CHIPSETS = re.compile(r"realtek|mediatek|qualcomm|broadcom|marvell|ralink", re.IGNORECASE)
 CAMERA_MFR_KEYWORDS = re.compile(r"camera|surveillance|security|cctv|dvr|nvr|vision", re.IGNORECASE)
+CAMERA_HOSTNAME_RE = re.compile(
+    r"(?:^|[-_.])(?:cam|ipcam|ipc|nvr|dvr|camera)(?:[-_.\d]|$)|hikvision|dahua|ezviz|wyze|"
+    r"blink|arlo|reolink|imou|tapo-?c|eufy|foscam|amcrest|esp32-?cam|v380|hdwificam|lookcam",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -582,7 +597,24 @@ class ScanContext:
         self.service_results: list[dict] = [] # Phase 4 results
         self.deep_results: list[dict] = []    # Phase 5 results
         self.classifications: list[dict] = [] # Phase 6 results
+        self.radio_results: list[dict] = []   # Nearby WiFi / BLE / monitor findings
+        self.onvif: dict[str, dict] = {}      # ip -> ONVIF device info
+        self.rtsp: dict[str, dict] = {}       # ip -> RTSP probe result
         self.counts = {"CRITICAL": 0, "HIGH": 0, "MODERATE": 0, "LOW": 0, "INFO": 0}
+
+        self.baseline = baseline_mod.Baseline(self.report_dir)
+
+    def oui_lookup(self, mac: str) -> tuple[str, int]:
+        """(manufacturer, tier) for detectors: 1/2 camera tiers, 3 camera keyword, -1 randomized."""
+        if is_mac_randomized(mac):
+            return "(randomized MAC)", -1
+        oui = mac_to_oui(mac)
+        if oui in TIER1_OUIS:
+            return TIER1_OUIS[oui], 1
+        if oui in TIER2_OUIS:
+            return TIER2_OUIS[oui], 2
+        mfr = self.nmap_mac_db.get(oui, "")
+        return mfr, 3 if mfr and CAMERA_MFR_KEYWORDS.search(mfr) else 0
 
 
 def phase0_prerequisites(ctx: ScanContext) -> None:
@@ -599,7 +631,7 @@ def phase0_prerequisites(ctx: ScanContext) -> None:
             log_warn(f"For best results, run: sudo {sys.executable} {__file__}")
 
     if not ctx.has_nmap:
-        log_critical("nmap is NOT installed — cannot proceed")
+        log_critical("nmap is NOT installed — skipping your-network scan (wireless checks still run)")
         print()
         print("  Install nmap:")
         if SYSTEM == "Linux":
@@ -610,11 +642,10 @@ def phase0_prerequisites(ctx: ScanContext) -> None:
             print("    macOS:  brew install nmap")
         elif SYSTEM == "Windows":
             print("    Windows: Download from https://nmap.org/download.html")
-        sys.exit(1)
-
-    stdout, _, _ = run_cmd(["nmap", "--version"])
-    nmap_ver = stdout.splitlines()[0] if stdout else "unknown version"
-    log_ok(f"nmap: {nmap_ver}")
+    else:
+        stdout, _, _ = run_cmd(["nmap", "--version"])
+        nmap_ver = stdout.splitlines()[0] if stdout else "unknown version"
+        log_ok(f"nmap: {nmap_ver}")
 
     if ctx.has_arpscan and SYSTEM != "Windows":
         stdout, _, _ = run_cmd(["arp-scan", "--version"])
@@ -731,11 +762,16 @@ def phase1_host_discovery(ctx: ScanContext) -> None:
     try:
         with open(nmap_grepable, encoding="utf-8", errors="replace") as fh:
             for line in fh:
-                m_host = re.match(r"Host:\s+(\d+\.\d+\.\d+\.\d+)", line)
+                m_host = re.match(r"Host:\s+(\d+\.\d+\.\d+\.\d+)\s+\(([^)]*)\)", line)
                 if not m_host:
                     continue
-                ip = m_host.group(1)
-                if ip in seen_ips or ip == ctx.my_ip or ip == ctx.gateway:
+                ip, hostname = m_host.group(1), m_host.group(2)
+                if ip in seen_ips:
+                    for h in ctx.hosts:
+                        if h["ip"] == ip and hostname:
+                            h["hostname"] = hostname
+                    continue
+                if ip == ctx.my_ip or ip == ctx.gateway:
                     continue
 
                 mac = ""
@@ -759,7 +795,8 @@ def phase1_host_discovery(ctx: ScanContext) -> None:
 
                 if mac and mac.upper() != "INCOMPLETE":
                     oui = mac_to_oui(mac)
-                    ctx.hosts.append({"ip": ip, "mac": mac, "vendor": vendor, "oui": oui})
+                    ctx.hosts.append({"ip": ip, "mac": mac, "vendor": vendor, "oui": oui,
+                                      "hostname": hostname})
                     seen_ips.add(ip)
     except OSError:
         pass
@@ -859,9 +896,13 @@ def phase2_oui_analysis(ctx: ScanContext) -> None:
                 unknown_count += 1
                 log_warn(f"UNKNOWN manufacturer: {ip} — {mac}")
 
+        hostname = host.get("hostname", "")
+        if hostname and CAMERA_HOSTNAME_RE.search(hostname):
+            log_warn(f"Camera-like hostname: {ip} — {hostname}")
+
         ctx.oui_results.append({
             "ip": ip, "mac": mac, "manufacturer": manufacturer,
-            "classification": classification, "oui": oui,
+            "classification": classification, "oui": oui, "hostname": hostname,
         })
 
     print()
@@ -936,12 +977,10 @@ def phase3_port_scan(ctx: ScanContext) -> None:
                             log_critical(f"RTSP port {port} OPEN on {ip} — {service} {version}")
                         elif port == "37777":
                             log_critical(f"Dahua port {port} OPEN on {ip}")
-                        elif port == "8000":
-                            log_warn(f"Hikvision port {port} open on {ip}")
                         elif port in ("34567", "34599"):
                             log_critical(f"XMEye/Chinese NVR port {port} OPEN on {ip}")
-                        elif port == "9000":
-                            log_warn(f"Reolink port {port} open on {ip}")
+                        elif port in WEAK_VENDOR_PORTS:
+                            log_info(f"Port {port} open on {ip} (also used by Hikvision/Reolink): {service} {version}")
                         else:
                             log_info(f"Port {port} open on {ip}: {service} {version}")
     except OSError:
@@ -1083,21 +1122,112 @@ def phase4_service_discovery(ctx: ScanContext) -> None:
             })
             log_warn(f"Camera-related UPnP device: {line.strip()}")
 
-    # ONVIF WS-Discovery via nmap
-    log_info("Scanning for ONVIF devices...")
-    stdout, _, _ = run_cmd(
-        ["nmap", "--script=broadcast-wsdd-discover"], timeout=30,
-    )
-    if re.search(r"NetworkVideoTransmitter|camera|onvif", stdout, re.IGNORECASE):
-        log_critical("ONVIF camera(s) detected via WS-Discovery!")
-        for line in stdout.splitlines():
-            if re.search(r"Address:|NetworkVideoTransmitter|camera|onvif", line, re.IGNORECASE):
-                ctx.service_results.append({
-                    "ip": "", "method": "ONVIF", "stype": "WSDD",
-                    "name": line.strip(), "txt": "",
-                })
+    # ONVIF WS-Discovery (+ unauthenticated GetDeviceInformation)
+    log_info("Scanning for ONVIF video transmitters...")
+    for dev in detectors.onvif_discover(bind_ip=ctx.my_ip):
+        ctx.onvif[dev["ip"]] = dev
+        label = " ".join(filter(None, [dev["manufacturer"] or dev["name"],
+                                       dev["model"] or dev["hardware"]])) or "unidentified model"
+        ctx.service_results.append({
+            "ip": dev["ip"], "method": "ONVIF", "stype": "NetworkVideoTransmitter",
+            "name": label, "txt": dev["firmware"],
+        })
+        log_critical(f"ONVIF camera at {dev['ip']}: {label}")
 
     log_ok("Service discovery complete")
+
+
+# ===========================================================================
+# Phase 4b: Nearby Wireless (beyond the connected network)
+# ===========================================================================
+
+def phase4b_nearby_wireless(ctx: ScanContext) -> None:
+    """Nearby WiFi access points and Bluetooth LE devices."""
+    log_phase("4b", "Nearby Wireless (other WiFi networks + Bluetooth)")
+
+    if not ctx.args.no_wifi_scan:
+        log_info("Scanning nearby WiFi networks for camera hotspots...")
+        aps = detectors.scan_wifi_aps(ctx.interface)
+        found = detectors.classify_aps(aps, ctx.oui_lookup)
+        log_ok(f"{len(aps)} access points in range, {len(found)} camera-like")
+        for f in found:
+            (log_critical if f["risk"] in ("CRITICAL", "HIGH") else log_warn)(
+                f"{f['device_type']}: {f['evidence']}"
+            )
+        ctx.radio_results.extend(found)
+
+    if not ctx.args.no_ble:
+        log_info("Scanning Bluetooth LE for trackers and BLE cameras (12s)...")
+        try:
+            devices = detectors.scan_ble()
+        except Exception as exc:
+            log_warn(f"Bluetooth scan failed: {exc}")
+            devices = []
+        if devices is None:
+            log_warn("Bluetooth scan skipped (pip install bleak)")
+        else:
+            found = detectors.classify_ble(devices)
+            log_ok(f"{len(devices)} BLE devices in range, {len(found)} flagged")
+            for f in found:
+                (log_critical if f["risk"] == "HIGH" else log_warn)(
+                    f"{f['device_type']} {f['mac']}: {f['evidence']}"
+                )
+            ctx.radio_results.extend(found)
+
+
+# ===========================================================================
+# Phase 5b: Passive Monitor-Mode Capture
+# ===========================================================================
+
+def phase5b_monitor(ctx: ScanContext) -> None:
+    """Listen to all WiFi channels for cameras on any nearby network."""
+    if ctx.args.no_monitor:
+        return
+    iface = ctx.args.monitor or ctx.interface
+    log_phase("5b", "Over-the-Air Capture (cameras on ANY nearby network)")
+
+    if SYSTEM != "Linux":
+        log_warn("Monitor-mode capture is Linux-only; nearby cameras on other networks "
+                 "are covered only by the access-point scan")
+        return
+    if not ctx.is_root:
+        log_warn("Monitor mode needs root — re-run with sudo")
+        return
+    if not detectors.monitor_supported(iface):
+        log_warn(f"{iface} does not support monitor mode. A USB adapter that does "
+                 "(e.g. Alfa AWUS036ACM) enables this: --monitor <iface>")
+        return
+
+    seconds = ctx.args.monitor_time or (30 if ctx.args.quick else 90)
+    if iface == ctx.interface:
+        log_warn("Using your connected WiFi card: your connection may pause during capture")
+    log_info(f"Capturing on all channels via {iface} for {seconds}s...")
+
+    cap = detectors.MonitorCapture(iface, log=log_warn)
+    if not cap.setup():
+        log_warn("Could not enter monitor mode (try: sudo airmon-ng check kill)")
+        return
+    try:
+        if not cap.run(duration=seconds):
+            log_warn("No capture backend: pip install scapy (or install tcpdump)")
+            return
+    finally:
+        cap.teardown()
+
+    if cap.locked:
+        log_warn(f"Channel locked by the active connection: captured only channel {cap.channel}. "
+                 "Use a second adapter (--monitor wlan1) for all channels.")
+
+    # Devices on our own LAN are already classified in phase 6
+    own = {h["mac"].upper() for h in ctx.hosts}
+    found = cap.findings(ctx.oui_lookup, own)
+    log_ok(f"Heard {len(cap.stations)} stations and {len(cap.aps)} access points; "
+           f"{len(found)} flagged")
+    for f in found:
+        (log_critical if f["risk"] in ("CRITICAL", "HIGH") else log_warn)(
+            f"{f['device_type']} {f['mac']}: {f['evidence']}"
+        )
+    ctx.radio_results.extend(found)
 
 
 # ===========================================================================
@@ -1184,10 +1314,10 @@ def phase5_deep_inspection(ctx: ScanContext) -> None:
             http_targets.add((pr["ip"], pr["port"]))
 
     if http_targets and (HAS_REQUESTS or shutil.which("curl")):
-        log_info("Inspecting HTTP services for camera indicators...")
-        for ip, port in http_targets:
-            log_dim(f"Checking {ip}:{port}...")
-            findings = _http_inspect(ip, port)
+        log_info(f"Inspecting {len(http_targets)} HTTP services for camera indicators...")
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            all_findings = list(pool.map(lambda t: _http_inspect(*t), sorted(http_targets)))
+        for (ip, port), findings in zip(sorted(http_targets), all_findings):
             for f in findings:
                 ctx.deep_results.append(f)
                 if f["type"] == "CAMERA_HEADER":
@@ -1201,47 +1331,35 @@ def phase5_deep_inspection(ctx: ScanContext) -> None:
     else:
         log_warn("Skipping HTTP inspection (no HTTP client available)")
 
-    # RTSP verification via nmap scripts
-    rtsp_ips: set[str] = set()
-    for pr in ctx.port_results:
-        if pr["port"] in ("554", "8554"):
-            rtsp_ips.add(pr["ip"])
-
-    if rtsp_ips:
+    # RTSP verification: real OPTIONS/DESCRIBE handshake (no credentials, no media)
+    rtsp_targets = sorted({(pr["ip"], pr["port"]) for pr in ctx.port_results if pr["port"] in RTSP_PORTS})
+    if rtsp_targets:
         log_info("Verifying RTSP services...")
-        for ip in rtsp_ips:
-            log_dim(f"Probing RTSP on {ip}...")
-            stdout, _, _ = run_cmd(
-                ["nmap", "-sV", "-p", "554,8554", "--script=rtsp-methods", ip],
-                timeout=30,
-            )
-            if re.search(r"RTSP|rtsp-methods|OPTIONS|DESCRIBE|SETUP|PLAY", stdout, re.IGNORECASE):
-                ctx.deep_results.append({
-                    "ip": ip, "port": "554", "type": "RTSP_CONFIRMED",
-                    "detail": "Active RTSP service",
-                })
-                log_critical(f"CONFIRMED RTSP streaming service on {ip}")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            probes = list(pool.map(lambda t: detectors.probe_rtsp(*t), rtsp_targets))
+        for (ip, port), res in zip(rtsp_targets, probes):
+            if not res:
+                log_dim(f"{ip}:{port} is not speaking RTSP")
+                continue
+            ctx.rtsp[ip] = res
+            detail = f"RTSP server {res['server'] or ''} on port {port}".replace("  ", " ")
+            if res["open_stream"]:
+                detail += f"; video stream open without password at {res['open_stream']}"
+                ctx.deep_results.append({"ip": ip, "port": port, "type": "RTSP_OPEN_STREAM", "detail": detail})
+            elif res["auth_required"]:
+                detail += "; password-protected stream"
+            ctx.deep_results.append({"ip": ip, "port": port, "type": "RTSP_CONFIRMED", "detail": detail})
+            log_critical(f"CONFIRMED RTSP on {ip}: {detail}")
 
-    # Vendor-specific port verification
-    vendor_targets: list[dict] = [
-        pr for pr in ctx.port_results if pr["port"] in ("8000", "37777", "34567", "34599", "9000")
-    ]
-    if vendor_targets:
-        log_info("Checking vendor-specific ports...")
-        for pr in vendor_targets:
-            ip, port = pr["ip"], pr["port"]
-            if port == "8000":
-                ctx.deep_results.append({"ip": ip, "port": port, "type": "HIKVISION_PORT", "detail": "Hikvision SDK port open"})
-                log_critical(f"Hikvision SDK port confirmed on {ip}:{port}")
-            elif port == "37777":
-                ctx.deep_results.append({"ip": ip, "port": port, "type": "DAHUA_PORT", "detail": "Dahua protocol port open"})
-                log_critical(f"Dahua protocol port confirmed on {ip}:{port}")
-            elif port in ("34567", "34599"):
-                ctx.deep_results.append({"ip": ip, "port": port, "type": "XMEYE_PORT", "detail": "XMEye/Chinese NVR port open"})
-                log_critical(f"XMEye NVR port confirmed on {ip}:{port}")
-            elif port == "9000":
-                ctx.deep_results.append({"ip": ip, "port": port, "type": "REOLINK_PORT", "detail": "Reolink port open"})
-                log_warn(f"Reolink port on {ip}:{port}")
+    # Proprietary camera protocol ports
+    for pr in ctx.port_results:
+        ip, port = pr["ip"], pr["port"]
+        if port == "37777":
+            ctx.deep_results.append({"ip": ip, "port": port, "type": "DAHUA_PORT", "detail": "Dahua protocol port open"})
+            log_critical(f"Dahua protocol port on {ip}:{port}")
+        elif port in ("34567", "34599"):
+            ctx.deep_results.append({"ip": ip, "port": port, "type": "XMEYE_PORT", "detail": "XMEye/Chinese NVR port open"})
+            log_critical(f"XMEye NVR port on {ip}:{port}")
 
     log_ok(f"Deep inspection complete: {len(ctx.deep_results)} findings")
 
@@ -1267,6 +1385,11 @@ def phase6_classify(ctx: ScanContext) -> None:
     for sr in ctx.service_results:
         ip_services.setdefault(sr["ip"], set()).add(sr.get("stype", ""))
 
+    ip_names: dict[str, list[str]] = {}
+    for sr in ctx.service_results:
+        if sr.get("method") == "mDNS":
+            ip_names.setdefault(sr["ip"], []).append(sr.get("name", ""))
+
     for device in ctx.oui_results:
         ip = device["ip"]
         mac = device["mac"]
@@ -1281,18 +1404,20 @@ def phase6_classify(ctx: ScanContext) -> None:
         has_rtsp = bool(open_ports_set & RTSP_PORTS)
         has_http = bool(open_ports_set & HTTP_PORTS)
         has_vendor_port = bool(open_ports_set & VENDOR_PORTS)
+        has_weak_port = bool(open_ports_set & WEAK_VENDOR_PORTS)
         has_camera_webui = bool(deep_types & {"CAMERA_WEBUI", "CAMERA_TITLE"})
         has_camera_header = "CAMERA_HEADER" in deep_types
         has_rtsp_confirmed = "RTSP_CONFIRMED" in deep_types
-        has_hikvision_port = "HIKVISION_PORT" in deep_types
-        has_dahua_port = "DAHUA_PORT" in deep_types
-        has_xmeye_port = "XMEYE_PORT" in deep_types
+        has_open_stream = "RTSP_OPEN_STREAM" in deep_types
+        onvif = ctx.onvif.get(ip)
         has_mdns_camera = bool(svc_types & {
             "_rtsp._tcp", "_camera._tcp", "_nvr._tcp", "_onvif._tcp",
             "_rtsp._tcp.local.", "_camera._tcp.local.", "_nvr._tcp.local.", "_onvif._tcp.local.",
         })
+        names = [device.get("hostname", "")] + ip_names.get(ip, [])
+        camera_name = next((n for n in names if n and CAMERA_HOSTNAME_RE.search(n)), "")
 
-        if has_hikvision_port or has_dahua_port or has_xmeye_port:
+        if "DAHUA_PORT" in deep_types or "XMEYE_PORT" in deep_types:
             has_vendor_port = True
 
         # Classification logic
@@ -1302,7 +1427,20 @@ def phase6_classify(ctx: ScanContext) -> None:
         recommendation = ""
 
         # -- CRITICAL --
-        if classification == "TIER1_CAMERA" and (has_rtsp or has_vendor_port):
+        if has_open_stream:
+            risk = "CRITICAL"
+            device_type = "Live Video Stream (no password)"
+            evidence = ctx.rtsp[ip].get("server", "") + " " + next(
+                d["detail"] for d in ctx.deep_results if d["ip"] == ip and d["type"] == "RTSP_OPEN_STREAM")
+            recommendation = "CAMERA STREAMING VIDEO ON THIS NETWORK. Locate and photograph it. Report to the platform/police."
+        elif onvif:
+            risk = "CRITICAL"
+            device_type = "ONVIF Camera (confirmed)"
+            model = " ".join(filter(None, [onvif["manufacturer"] or onvif["name"],
+                                           onvif["model"] or onvif["hardware"]]))
+            evidence = f"Device identifies itself as an ONVIF video transmitter: {model or 'model not disclosed'}"
+            recommendation = "CONFIRMED CAMERA. Locate and photograph it. Report to the platform."
+        elif classification == "TIER1_CAMERA" and (has_rtsp or has_vendor_port or has_weak_port):
             risk = "CRITICAL"
             device_type = "Surveillance Camera (confirmed)"
             evidence = f"Surveillance manufacturer ({manufacturer}) + streaming/control ports open ({open_ports_str})"
@@ -1310,7 +1448,7 @@ def phase6_classify(ctx: ScanContext) -> None:
         elif has_rtsp_confirmed:
             risk = "CRITICAL"
             device_type = "RTSP Streaming Device (confirmed)"
-            evidence = "Active RTSP streaming service detected"
+            evidence = next(d["detail"] for d in ctx.deep_results if d["ip"] == ip and d["type"] == "RTSP_CONFIRMED")
             recommendation = "CONFIRMED VIDEO STREAMING. Locate and photograph the device. Contact Airbnb."
         elif has_camera_webui or has_camera_header:
             risk = "CRITICAL"
@@ -1339,6 +1477,11 @@ def phase6_classify(ctx: ScanContext) -> None:
             device_type = "Consumer Camera"
             evidence = f"Known camera brand: {manufacturer}"
             recommendation = "Consumer camera brand detected. Check if disclosed in listing."
+        elif camera_name:
+            risk = "HIGH"
+            device_type = "Device with Camera Name"
+            evidence = f"Device announces itself as '{camera_name}'"
+            recommendation = "Device name indicates a camera. Locate it physically."
         elif classification == "CAMERA_KEYWORD":
             risk = "HIGH"
             device_type = "Camera-Related Device"
@@ -1386,6 +1529,11 @@ def phase6_classify(ctx: ScanContext) -> None:
             device_type = "Generic Chipset (suspicious ports)"
             evidence = f"Generic chipset ({manufacturer}) + camera ports ({open_ports_str})"
             recommendation = "Generic device with camera-specific ports. Investigate."
+        elif has_weak_port and classification not in ("KNOWN_SAFE", "KNOWN_OTHER"):
+            risk = "MODERATE"
+            device_type = "Device with Possible Camera Port"
+            evidence = f"Port used by Hikvision/Reolink cameras open ({open_ports_str}), but also common on other devices"
+            recommendation = "Check what this device is; port alone is not proof of a camera."
         elif classification == "UNKNOWN":
             risk = "MODERATE"
             device_type = "Unidentified Device"
@@ -1416,28 +1564,28 @@ def phase6_classify(ctx: ScanContext) -> None:
             evidence = f"Identified manufacturer: {manufacturer}"
             recommendation = "Known device type, no camera indicators"
 
-        ctx.counts[risk] += 1
+        if risk in ("CRITICAL", "HIGH", "MODERATE") and mac:
+            recommendation += f" Find it: --locate mon:{mac} or --survey mon:{mac}"
+
         ctx.classifications.append({
             "risk": risk, "ip": ip, "mac": mac, "manufacturer": manufacturer,
             "device_type": device_type, "open_ports": open_ports_str,
-            "evidence": evidence, "recommendation": recommendation,
+            "evidence": evidence, "recommendation": recommendation, "source": "lan",
         })
 
-    # Write pipe-delimited files for report_html.py
-    class_path = os.path.join(ctx.scan_dir, "classifications.txt")
-    with open(class_path, "w", encoding="utf-8") as fh:
-        for c in ctx.classifications:
-            fh.write(
-                f"{c['risk']}|{c['ip']}|{c['mac']}|{c['manufacturer']}|"
-                f"{c['device_type']}|{c['open_ports']}|{c['evidence']}|{c['recommendation']}\n"
-            )
+    ctx.classifications.extend(ctx.radio_results)
 
-    summary_path = os.path.join(ctx.scan_dir, "summary_counts.txt")
-    with open(summary_path, "w", encoding="utf-8") as fh:
-        fh.write(
-            f"{ctx.counts['CRITICAL']}|{ctx.counts['HIGH']}|"
-            f"{ctx.counts['MODERATE']}|{ctx.counts['LOW']}|{ctx.counts['INFO']}\n"
-        )
+    for c in ctx.classifications:
+        c["new"] = ctx.baseline.is_new(c["mac"])
+        if c["new"]:
+            c["evidence"] = "[NEW since baseline] " + c["evidence"]
+        if ctx.baseline.is_trusted(c["mac"]):
+            c["evidence"] = f"Marked trusted by you (would be {c['risk']}): {c['evidence']}"
+            c["device_type"] = f"Trusted: {ctx.baseline.label(c['mac'])}"
+            c["risk"] = "INFO"
+        ctx.counts[c["risk"]] += 1
+
+    write_results_json(ctx, os.path.join(ctx.scan_dir, "results.json"))
 
     # Print classification summary
     print()
@@ -1461,6 +1609,31 @@ def phase6_classify(ctx: ScanContext) -> None:
 # ===========================================================================
 # Phase 7: Reports (terminal + HTML)
 # ===========================================================================
+
+PHYSICAL_CHECKLIST = [
+    "Turn off the lights and sweep the room with your phone flashlight: camera lenses reflect a bright dot",
+    "Use your phone's front camera in the dark: it often sees the infrared LEDs of night-vision cameras",
+    "Check smoke detectors, USB chargers, clocks, picture frames, air purifiers, speakers and TV boxes",
+    "Look at anything facing the bed, shower or toilet, and any small hole you can't explain",
+    "Check for devices plugged in behind furniture or with cables leading nowhere",
+    "Unknown device flagged above? Use --survey to measure from 3+ spots and narrow its position",
+]
+
+
+def write_results_json(ctx: ScanContext, path: str) -> None:
+    """Machine-readable results, also used by report_html.py."""
+    data = {
+        "scanner": "privacy-scanner",
+        "timestamp": ctx.timestamp,
+        "network": {"subnet": ctx.subnet, "interface": ctx.interface,
+                    "gateway": ctx.gateway, "scanner_ip": ctx.my_ip},
+        "mode": "Quick" if ctx.args.quick else "Full",
+        "counts": ctx.counts,
+        "devices": ctx.classifications,
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
 
 def phase7_report_terminal(ctx: ScanContext) -> None:
     """Print the final report to the terminal."""
@@ -1525,7 +1698,8 @@ def phase7_report_terminal(ctx: ScanContext) -> None:
         color = risk_colors[level]
         icon = risk_icons[level]
         for d in devices:
-            print(f"  {icon} {color}{BOLD}[{d['risk']}]{NC} {BOLD}{d['ip']}{NC}")
+            new_tag = f" {RED}{BOLD}[NEW]{NC}" if d.get("new") else ""
+            print(f"  {icon} {color}{BOLD}[{d['risk']}]{NC} {BOLD}{d['ip']}{NC}{new_tag}")
             print(f"      MAC:           {d['mac']}")
             print(f"      Manufacturer:  {d['manufacturer'] or 'Unknown'}")
             print(f"      Device Type:   {d['device_type']}")
@@ -1551,18 +1725,24 @@ def phase7_report_terminal(ctx: ScanContext) -> None:
         print(f"      (hidden cameras are illegal in most jurisdictions)")
         print()
 
+    print(f"  {BOLD}--- PHYSICAL CHECK (do this too) ---{NC}")
+    print()
+    for i, step in enumerate(PHYSICAL_CHECKLIST, 1):
+        print(f"  {CYAN}{i}.{NC} {step}")
+    print()
+
     # Limitations
     print(f"  {BOLD}--- LIMITATIONS ---{NC}")
     print()
-    print(f"  {DIM}This scan covers devices connected to the same WiFi network.{NC}")
+    print(f"  {DIM}Covered: your WiFi network, nearby WiFi networks, Bluetooth LE,{NC}")
+    print(f"  {DIM}and (with monitor mode) devices talking on any nearby WiFi network.{NC}")
     print(f"  {DIM}The following are NOT detected:{NC}")
-    print(f"  {DIM}  - Cameras on a separate VLAN or wired-only network{NC}")
+    print(f"  {DIM}  - Wired-only cameras (Ethernet/PoE) on another network{NC}")
     print(f"  {DIM}  - Cellular-connected cameras (4G/LTE){NC}")
     print(f"  {DIM}  - Cameras that are powered off or in standby{NC}")
-    print(f"  {DIM}  - Devices using MAC address randomization{NC}")
-    print(f"  {DIM}  - Local storage cameras not connected to any network{NC}")
+    print(f"  {DIM}  - Local storage cameras that never transmit (SD-card only){NC}")
     print(f"  {DIM}  - Audio-only recording devices (bugs){NC}")
-    print(f"  {DIM}For comprehensive detection, also perform a physical inspection.{NC}")
+    print(f"  {DIM}Location estimates use signal strength: expect +/- 1-3 m indoors.{NC}")
     print()
     print(f"  {BOLD}--- RENTAL POLICY ---{NC}")
     print()
@@ -1590,16 +1770,14 @@ def phase7_report_html(ctx: ScanContext) -> None:
         return
 
     html_output = ctx.report_dir / f"privacy-scan-{ctx.timestamp}.html"
-    class_file = os.path.join(ctx.scan_dir, "classifications.txt")
-    summary_file = os.path.join(ctx.scan_dir, "summary_counts.txt")
+    results_file = os.path.join(ctx.scan_dir, "results.json")
     duration = int(time.time() - ctx.start_time)
     mode = "Quick" if ctx.args.quick else "Full"
     lang = ctx.args.lang
 
     cmd = [
         sys.executable, str(report_script),
-        "--classifications", class_file,
-        "--summary", summary_file,
+        "--classifications", results_file,
         "--output", str(html_output),
         "--subnet", ctx.subnet,
         "--interface", ctx.interface,
@@ -1643,11 +1821,53 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-html", action="store_true", help="Skip HTML report generation")
     parser.add_argument("--lang", default="pt", choices=["pt", "en", "es"],
                         help="Report language (default: pt)")
+
+    radio = parser.add_argument_group("nearby wireless (beyond your network)")
+    radio.add_argument("--monitor", metavar="IFACE", default="",
+                       help="WiFi interface for over-the-air capture (default: scan interface). "
+                            "A second USB adapter gives full channel coverage")
+    radio.add_argument("--monitor-time", type=int, default=0, metavar="SEC",
+                       help="Over-the-air capture duration (default: 90, quick: 30)")
+    radio.add_argument("--no-monitor", action="store_true", help="Skip over-the-air capture")
+    radio.add_argument("--no-wifi-scan", action="store_true", help="Skip nearby access point scan")
+    radio.add_argument("--no-ble", action="store_true", help="Skip Bluetooth LE scan")
+
+    find = parser.add_argument_group("finding a device")
+    find.add_argument("--locate", metavar="TARGET",
+                      help="Live hot/cold signal meter: IP, wifi:<BSSID>, ble:<addr> or mon:<MAC>")
+    find.add_argument("--survey", metavar="TARGET",
+                      help="Measure from several spots to estimate position: wifi:/ble:/mon:<addr>")
+    find.add_argument("--optical", metavar="SOURCE",
+                      help="Find offline/powered-off cameras by lens glint and IR LEDs: "
+                           "webcam index (0) or a phone video file")
+
+    track = parser.add_argument_group("tracking and evidence")
+    track.add_argument("--trust", action="append", default=[], metavar="MAC[=LABEL]",
+                       help="Mark your own device as trusted on every network (repeatable)")
+    track.add_argument("--watch", type=float, default=0, metavar="MIN",
+                       help="Keep scanning every MIN minutes and alert on new suspicious devices")
+    track.add_argument("--evidence", action="store_true",
+                       help="Save a zip of reports + raw data with a SHA-256 manifest")
+    track.add_argument("--serve", type=int, nargs="?", const=8765, default=0, metavar="PORT",
+                       help="Share results with the mobile app over WiFi (default port 8765)")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+
+    if args.optical:
+        import optical
+        optical.run(args.optical, Path(args.output_dir) / f"optical-{time.strftime('%Y%m%d-%H%M%S')}")
+        return
+
+    if args.locate or args.survey:
+        iface = args.monitor or args.interface or detect_network()["interface"]
+        if args.locate:
+            detectors.locate(args.locate, iface)
+        else:
+            detectors.survey(args.survey, iface)
+        return
 
     print()
     print(f"{BOLD}{CYAN}{'=' * 58}{NC}")
@@ -1657,29 +1877,18 @@ def main() -> None:
 
     ctx = ScanContext(args)
 
+    for spec in args.trust:
+        mac, _, label = spec.partition("=")
+        ctx.baseline.trust(mac, label)
+        log_ok(f"Trusted {mac.upper()} ({label or 'trusted'})")
+
     # Phase 0: prerequisites
     phase0_prerequisites(ctx)
 
     # Phase 0.5: network detection
     phase05_network_detection(ctx)
 
-    # Phase 1: host discovery
-    phase1_host_discovery(ctx)
-
-    # Phase 2: OUI analysis
-    phase2_oui_analysis(ctx)
-
-    # Phase 3: port scanning
-    phase3_port_scan(ctx)
-
-    # Phase 4: service discovery (skipped in --quick mode)
-    phase4_service_discovery(ctx)
-
-    # Phase 5: deep inspection (skipped in --quick mode)
-    phase5_deep_inspection(ctx)
-
-    # Phase 6: risk classification
-    phase6_classify(ctx)
+    run_pipeline(ctx)
 
     # Phase 7: terminal report
     phase7_report_terminal(ctx)
@@ -1687,13 +1896,153 @@ def main() -> None:
     # Phase 7: HTML report
     phase7_report_html(ctx)
 
+    json_output = ctx.report_dir / f"privacy-scan-{ctx.timestamp}.json"
+    shutil.copy(os.path.join(ctx.scan_dir, "results.json"), json_output)
+    ctx.baseline.record(ctx.classifications)
+
+    if args.evidence:
+        pack = evidence.build_pack(
+            ctx.report_dir / f"evidence-{ctx.timestamp}.zip",
+            [ctx.report_dir / f"privacy-scan-{ctx.timestamp}.html", json_output],
+            Path(ctx.scan_dir),
+            {"subnet": ctx.subnet, "interface": ctx.interface, "gateway": ctx.gateway,
+             "scanner_ip": ctx.my_ip, "counts": ctx.counts},
+        )
+        log_ok(f"Evidence pack: {pack}")
+
     # Final summary
     duration = int(time.time() - ctx.start_time)
     print(f"  {BOLD}Scan completed in {duration}s{NC}")
-    print(f"  {DIM}Results saved to: {ctx.scan_dir}{NC}")
+    print(f"  {DIM}Results saved to: {json_output}{NC}")
     if not args.no_html:
         print(f"  {DIM}HTML reports in:  {ctx.report_dir}{NC}")
     print()
+
+    if args.serve:
+        serve_results(ctx, args.serve)
+    if args.watch > 0:
+        watch_loop(ctx)
+    elif args.serve:
+        log_info("Serving results to the mobile app — Ctrl-C to stop")
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            print()
+
+
+def serve_results(ctx: ScanContext, port: int) -> None:
+    """Serve the latest results.json to the mobile app, guarded by a random token."""
+    import http.server
+    import secrets
+    import threading
+    import urllib.parse
+
+    token = secrets.token_urlsafe(12)
+    results = os.path.join(ctx.scan_dir, "results.json")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            url = urllib.parse.urlparse(self.path)
+            given = urllib.parse.parse_qs(url.query).get("token", [""])[0]
+            if url.path != "/results.json":
+                self.send_error(404)
+            elif not secrets.compare_digest(given, token):
+                self.send_error(403)
+            else:
+                try:
+                    with open(results, "rb") as fh:
+                        body = fh.read()
+                except OSError:
+                    self.send_error(503)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    try:
+        server = http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    except OSError as exc:
+        log_warn(f"Could not serve on port {port}: {exc}")
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    link = f"privacyscanner://link?host={ctx.my_ip}&port={port}&token={token}"
+    print()
+    log_ok("Mobile app link (Settings → Laptop scanner):")
+    print(f"  {BOLD}{link}{NC}")
+    try:
+        import qrcode  # type: ignore
+
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(link)
+        qr.print_ascii(invert=True)
+    except ImportError:
+        log_dim("pip install qrcode to show a scannable QR code here")
+    print()
+
+
+def run_pipeline(ctx: ScanContext) -> None:
+    """Phases 1-6. Re-run by watch mode on each cycle."""
+    if ctx.has_nmap:
+        phase1_host_discovery(ctx)
+    gw = next((h["mac"] for h in ctx.hosts if h["ip"] == ctx.gateway and h["mac"]), "")
+    ctx.baseline.use_network(gw or ctx.subnet)
+    if ctx.has_nmap:
+        phase2_oui_analysis(ctx)
+        phase3_port_scan(ctx)
+        phase4_service_discovery(ctx)   # skipped in --quick mode
+    phase4b_nearby_wireless(ctx)
+    if ctx.has_nmap:
+        phase5_deep_inspection(ctx)     # skipped in --quick mode
+    phase5b_monitor(ctx)            # last: may pause the WiFi connection
+    phase6_classify(ctx)
+
+
+def alert(msg: str) -> None:
+    """Terminal bell + desktop notification where available."""
+    print("\a", end="")
+    log_critical(msg)
+    if SYSTEM == "Linux" and shutil.which("notify-send"):
+        run_cmd(["notify-send", "-u", "critical", "Privacy Scanner", msg], timeout=5)
+    elif SYSTEM == "Darwin":
+        safe = msg.replace("\\", "").replace('"', "'")
+        run_cmd(["osascript", "-e", f'display notification "{safe}" with title "Privacy Scanner"'], timeout=5)
+
+
+def watch_loop(ctx: ScanContext) -> None:
+    """Re-scan periodically; alert when a suspicious device appears."""
+    seen = {c["mac"].upper() for c in ctx.classifications if c["mac"]}
+    try:
+        while True:
+            log_info(f"Watch mode: next scan in {ctx.args.watch:g} min (Ctrl-C to stop)")
+            time.sleep(ctx.args.watch * 60)
+            for attr in ("hosts", "oui_results", "port_results", "service_results",
+                         "deep_results", "classifications", "radio_results"):
+                setattr(ctx, attr, [])
+            ctx.onvif, ctx.rtsp = {}, {}
+            ctx.counts = dict.fromkeys(ctx.counts, 0)
+            ctx.timestamp = time.strftime("%Y%m%d-%H%M%S")
+            run_pipeline(ctx)
+
+            fresh = [c for c in ctx.classifications if c["mac"] and c["mac"].upper() not in seen]
+            for c in fresh:
+                seen.add(c["mac"].upper())
+                if c["risk"] in ("CRITICAL", "HIGH", "MODERATE"):
+                    alert(f"NEW {c['risk']}: {c['device_type']} {c['mac']} ({c['ip']}) — {c['evidence']}")
+            if not fresh:
+                log_ok("No new devices")
+            ctx.baseline.record(ctx.classifications)
+            shutil.copy(os.path.join(ctx.scan_dir, "results.json"),
+                        ctx.report_dir / f"privacy-scan-{ctx.timestamp}.json")
+    except KeyboardInterrupt:
+        print()
+        log_info("Watch mode stopped")
 
 
 if __name__ == "__main__":

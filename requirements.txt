@@ -1,3 +1,8 @@
 python-nmap>=0.7.1
 zeroconf>=0.131.0
 requests>=2.31.0
+# Nearby wireless detection (optional)
+bleak>=0.22.0          # Bluetooth LE trackers / BLE cameras
+scapy>=2.5.0           # Over-the-air (monitor mode) capture; tcpdump is the fallback
+# Offline camera detection (optional)
+opencv-python>=4.8.0   # --optical lens-glint / IR LED finder

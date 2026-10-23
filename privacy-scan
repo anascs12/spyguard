@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run the laptop scanner with the project's virtualenv (created on first use).
+# Usage: ./privacy-scan [scan.py options], e.g. ./privacy-scan --lang en --serve
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+py="$here/.venv/bin/python"
+if [ ! -x "$py" ]; then
+  python3 -m venv "$here/.venv"
+  "$here/.venv/bin/pip" install -q -r "$here/requirements.txt" qrcode
+fi
+exec sudo "$py" "$here/scripts/scan.py" "$@"

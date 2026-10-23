@@ -77,6 +77,23 @@ sudo python3 scripts/scan.py --interface wlan0 --subnet 192.168.1.0/24
 
 **CRITICAL**: Run with `sudo` (Linux/macOS) or as Administrator (Windows). ARP scanning and SYN port scanning require elevated privileges. Without them, the scanner falls back to less reliable methods.
 
+### Step 3: Go beyond the connected network
+
+A full scan also covers nearby WiFi access points (camera hotspots), Bluetooth LE trackers, and,
+on Linux with root, a passive monitor-mode capture that flags cameras on **any** nearby network.
+
+```bash
+sudo python3 scripts/scan.py --monitor wlan1          # second USB adapter = all channels
+sudo python3 scripts/scan.py --locate mon:<MAC>       # live hot/cold meter to find a device
+sudo python3 scripts/scan.py --survey mon:<MAC>       # measure from 3+ spots -> position estimate
+python3 scripts/scan.py --optical 0                   # offline/powered-off cameras via lens glint & IR
+sudo python3 scripts/scan.py --watch 10 --evidence    # keep watching; save hashed evidence pack
+python3 scripts/scan.py --trust <MAC>=my-phone        # never flag the user's own devices
+```
+
+All checks are detection-only. Never suggest logging into a device, guessing passwords,
+deauthenticating clients or joining someone else's network.
+
 ### Step 4: Interpret Results
 
 The scanner classifies every device into risk levels:
@@ -107,8 +124,10 @@ For CRITICAL or HIGH findings:
 | 1 | Host Discovery | `arp-scan`, `nmap -sn` | Find ALL devices on the network |
 | 2 | OUI Analysis | nmap-mac-prefixes + embedded DB | Identify manufacturers, flag camera brands |
 | 3 | Port Scan | `nmap -sS/-sT -sV` | Scan camera-specific ports (RTSP, HTTP, vendor) |
-| 4 | Service Discovery | `avahi-browse`, nmap NSE | mDNS, UPnP, ONVIF, SSDP discovery |
-| 5 | Deep Inspection | `curl`, nmap NSE | HTTP banner grab, RTSP verify, keyword search |
+| 4 | Service Discovery | zeroconf/`avahi-browse`, WS-Discovery | mDNS, UPnP, ONVIF (+ model lookup) |
+| 4b | Nearby Wireless | `nmcli`/`iw`/`netsh`, `bleak` | Camera hotspots, BLE trackers/cameras |
+| 5 | Deep Inspection | `requests`/`curl`, RTSP handshake | HTTP fingerprint, RTSP verify, open streams |
+| 5b | Over-the-Air | monitor mode, `scapy`/`tcpdump` | Cameras on any nearby network (Linux, root) |
 | 6 | Classification | Evidence correlation | Apply risk matrix to all collected evidence |
 | 7 | Report | Terminal + HTML | Formatted output with actionable recommendations |
 
@@ -120,14 +139,23 @@ Phases 4-5 are skipped in `--quick` mode.
 |-----------|-----------|
 | Surveillance manufacturer OUI + RTSP/streaming port open | 🔴 CRITICAL |
 | Surveillance manufacturer OUI + camera web UI confirmed | 🔴 CRITICAL |
-| Any device + confirmed active RTSP streaming | 🔴 CRITICAL |
+| Any device + confirmed RTSP handshake | 🔴 CRITICAL |
+| RTSP video stream reachable without password | 🔴 CRITICAL |
+| Device answers ONVIF discovery as a video transmitter | 🔴 CRITICAL |
+| Camera-brand hotspot with camera SSID nearby | 🔴 CRITICAL |
+| Camera-brand device streaming over the air, close by | 🔴 CRITICAL |
 | Camera service advertising via mDNS (e.g. `_rtsp._tcp`) | 🔴 CRITICAL |
 | Camera web page title (NETSurveillance, IPCamera, DVR, etc.) | 🔴 CRITICAL |
 | Known surveillance manufacturer, no open ports detected | 🟠 HIGH |
 | Known consumer camera brand (Wyze, Blink, Arlo, etc.) | 🟠 HIGH |
 | Manufacturer name contains camera/surveillance keywords | 🟠 HIGH |
 | Unknown device + RTSP port open | 🟠 HIGH |
-| Unknown device + vendor-specific camera port open | 🟠 HIGH |
+| Unknown device + proprietary camera port (37777, 34567, 34599) | 🟠 HIGH |
+| Camera-like hostname or mDNS name | 🟠 HIGH |
+| Camera setup hotspot / camera-brand AP nearby | 🟠 HIGH |
+| AirTag (separated) / Google Find My tracker | 🟠 HIGH |
+| Close device on another network with continuous upload | 🟠 HIGH |
+| Port 8000/8200/9000 only (also common on non-cameras) | 🟡 MODERATE |
 | IoT chipset (Espressif, Tuya) + camera ports open | 🟡 MODERATE |
 | IoT chipset + HTTP server (no camera keywords) | 🟡 MODERATE |
 | Unknown manufacturer + HTTP server | 🟡 MODERATE |

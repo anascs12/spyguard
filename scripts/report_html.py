@@ -13,8 +13,7 @@ Generates a self-contained, offline-capable HTML report with:
 
 Usage:
     python3 report_html.py \\
-        --classifications /tmp/scan/classifications.txt \\
-        --summary /tmp/scan/summary_counts.txt \\
+        --classifications /tmp/scan/results.json \\
         --output ./report.html \\
         --subnet "192.168.1.0/24" \\
         --interface "wlan0" \\
@@ -27,6 +26,7 @@ Usage:
 
 import argparse
 import html
+import json
 import os
 import sys
 from datetime import datetime
@@ -37,9 +37,9 @@ def parse_args():
         description="Generate HTML report for privacy surveillance scan"
     )
     p.add_argument("--classifications", required=True,
-                   help="Path to classifications.txt (pipe-delimited)")
-    p.add_argument("--summary", required=True,
-                   help="Path to summary_counts.txt")
+                   help="Path to results.json, or classifications.txt (pipe-delimited)")
+    p.add_argument("--summary", default="",
+                   help="Path to summary_counts.txt (only with classifications.txt)")
     p.add_argument("--output", required=True,
                    help="Output HTML file path")
     p.add_argument("--subnet", default="unknown")
@@ -55,6 +55,11 @@ def parse_args():
 def load_devices(path):
     devices = []
     if not os.path.exists(path):
+        return devices
+    if path.endswith(".json"):
+        with open(path, "r", encoding="utf-8") as f:
+            for d in json.load(f).get("devices", []):
+                devices.append(dict(d, ports=d.get("open_ports", "")))
         return devices
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -78,7 +83,11 @@ def load_devices(path):
 
 def load_counts(path):
     counts = {"CRITICAL": 0, "HIGH": 0, "MODERATE": 0, "LOW": 0, "INFO": 0}
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
+        return counts
+    if path.endswith(".json"):
+        with open(path, "r", encoding="utf-8") as f:
+            counts.update(json.load(f).get("counts", {}))
         return counts
     with open(path, "r", encoding="utf-8") as f:
         parts = f.read().strip().split("|")
@@ -213,14 +222,14 @@ I18N = {
     # -- Limitations
     "limitations_title": {"pt": "Limitações da Varredura", "en": "Scan Limitations", "es": "Limitaciones del Escaneo"},
     "limitation_1": {
-        "pt": "Cobre apenas dispositivos conectados à mesma rede WiFi",
-        "en": "Only covers devices connected to the same WiFi network",
-        "es": "Solo cubre dispositivos conectados a la misma red WiFi",
+        "pt": "Cobre sua rede WiFi, redes WiFi próximas, Bluetooth LE e (com modo monitor) dispositivos em qualquer rede WiFi próxima",
+        "en": "Covers your WiFi network, nearby WiFi networks, Bluetooth LE and (with monitor mode) devices on any nearby WiFi network",
+        "es": "Cubre su red WiFi, redes WiFi cercanas, Bluetooth LE y (con modo monitor) dispositivos en cualquier red WiFi cercana",
     },
     "limitation_2": {
-        "pt": "Não detecta câmeras em uma VLAN separada ou rede cabeada",
-        "en": "Cannot detect cameras on a separate VLAN or wired-only network",
-        "es": "No detecta cámaras en una VLAN separada o red cableada",
+        "pt": "Não detecta câmeras somente cabeadas (Ethernet/PoE) em outra rede",
+        "en": "Cannot detect wired-only cameras (Ethernet/PoE) on another network",
+        "es": "No detecta cámaras solo cableadas (Ethernet/PoE) en otra red",
     },
     "limitation_3": {
         "pt": "Não detecta câmeras com conexão celular (4G/LTE)",
@@ -233,9 +242,9 @@ I18N = {
         "es": "No detecta cámaras que estén apagadas",
     },
     "limitation_5": {
-        "pt": "Não detecta dispositivos usando randomização de MAC",
-        "en": "Cannot detect devices using MAC address randomization",
-        "es": "No detecta dispositivos que usen aleatorización de MAC",
+        "pt": "Estimativas de localização usam intensidade de sinal: margem de 1-3 m em ambientes internos",
+        "en": "Location estimates use signal strength: expect +/- 1-3 m indoors",
+        "es": "Las estimaciones de ubicación usan intensidad de señal: margen de 1-3 m en interiores",
     },
     "limitation_6": {
         "pt": "Não detecta câmeras com armazenamento local sem conexão de rede",
@@ -252,6 +261,14 @@ I18N = {
         "en": "For comprehensive detection, also perform a physical inspection",
         "es": "Para una detección completa, realice también una inspección física",
     },
+
+    # -- Physical inspection checklist
+    "check_title": {"pt": "Verificação Física", "en": "Physical Check", "es": "Verificación Física"},
+    "check_1": {"pt": "Apague as luzes e varra o cômodo com a lanterna do celular: lentes de câmera refletem um ponto brilhante", "en": "Turn off the lights and sweep the room with your phone flashlight: camera lenses reflect a bright dot", "es": "Apague las luces y recorra la habitación con la linterna del móvil: las lentes de cámara reflejan un punto brillante"},
+    "check_2": {"pt": "Use a câmera frontal do celular no escuro: ela costuma ver os LEDs infravermelhos de câmeras com visão noturna", "en": "Use your phone's front camera in the dark: it often sees the infrared LEDs of night-vision cameras", "es": "Use la cámara frontal del móvil a oscuras: suele ver los LED infrarrojos de cámaras con visión nocturna"},
+    "check_3": {"pt": "Verifique detectores de fumaça, carregadores USB, relógios, porta-retratos, purificadores, caixas de som e TV boxes", "en": "Check smoke detectors, USB chargers, clocks, picture frames, air purifiers, speakers and TV boxes", "es": "Revise detectores de humo, cargadores USB, relojes, marcos de fotos, purificadores, altavoces y TV boxes"},
+    "check_4": {"pt": "Observe tudo que aponta para a cama, chuveiro ou vaso sanitário, e qualquer furo pequeno sem explicação", "en": "Look at anything facing the bed, shower or toilet, and any small hole you can't explain", "es": "Fíjese en todo lo que apunte a la cama, ducha o inodoro, y en cualquier agujero pequeño sin explicación"},
+    "check_5": {"pt": "Dispositivo desconhecido acima? Use --survey para medir de 3+ pontos e estimar sua posição", "en": "Unknown device flagged above? Use --survey to measure from 3+ spots and estimate its position", "es": "¿Dispositivo desconocido arriba? Use --survey para medir desde 3+ puntos y estimar su posición"},
 
     # -- Platform policies
     "policy_title": {"pt": "Política de Acomodações", "en": "Rental Policy", "es": "Política de Alojamiento"},
@@ -348,7 +365,7 @@ RISK_BG = {
 
 def generate_html(args):
     devices = load_devices(args.classifications)
-    counts = load_counts(args.summary)
+    counts = load_counts(args.classifications if args.classifications.endswith(".json") else args.summary)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lang = args.lang
     total_devices = sum(counts.values())
@@ -488,6 +505,11 @@ def generate_html(args):
     for i in range(1, 9):
         key = f"limitation_{i}"
         limitations_html += f'    <li data-i18n="{key}">{esc(I18N[key][lang])}</li>\n'
+
+    checklist_html = ""
+    for i in range(1, 6):
+        key = f"check_{i}"
+        checklist_html += f'    <li data-i18n="{key}">{esc(I18N[key][lang])}</li>\n'
 
     # -- Build final HTML --------------------------------------------------
     html_content = f'''<!DOCTYPE html>
@@ -1461,6 +1483,13 @@ body {{
 
   <!-- Action Box (threats only) -->
   {action_html}
+
+  <!-- Physical checklist -->
+  <div class="limitations">
+    <h3><span>&#128294;</span> <span data-i18n="check_title">{esc(I18N["check_title"][lang])}</span></h3>
+    <ul>
+{checklist_html}    </ul>
+  </div>
 
   <!-- Limitations -->
   <div class="limitations">
