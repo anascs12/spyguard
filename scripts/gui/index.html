@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpyGuard</title>
+<style>
+:root {
+  --bg: #0B0D10; --surface: #14171C; --surface2: #1B1F26; --border: #242A33;
+  --text: #ECEEF1; --muted: #8A93A3; --faint: #5B6472; --accent: #6C8CFF;
+  --critical: #FF4D4F; --high: #FF8A3D; --moderate: #E9B730; --low: #33C481; --info: #7C93FF;
+  --radius: 18px;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #F6F7F9; --surface: #FFFFFF; --surface2: #EEF0F3; --border: #E1E4E9;
+          --text: #11141A; --muted: #5E6675; --faint: #9AA2AF; --accent: #3E63F2; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 28px 24px 64px; }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+header h1 { font-size: 22px; margin: 0; letter-spacing: -0.3px; }
+header .sub { color: var(--muted); font-size: 13px; }
+header .spacer { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px;
+  border-radius: 12px; background: var(--surface2); font-weight: 600; transition: opacity .15s; }
+.btn:hover { opacity: .85; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.small { height: 36px; padding: 0 14px; font-size: 14px; }
+.btn.ghost { background: transparent; color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+.section-title { font-size: 12px; font-weight: 700; letter-spacing: .7px; color: var(--faint);
+  text-transform: uppercase; margin: 30px 4px 10px; }
+.hidden { display: none !important; }
+
+/* Home */
+.hero { text-align: center; padding: 40px 22px 34px; }
+.orb { width: 220px; height: 220px; border-radius: 50%; margin: 0 auto 26px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center; line-height: 1.2;
+  background: var(--surface2); border: 6px solid var(--accent); font-size: 26px; font-weight: 700;
+  box-shadow: 0 0 0 0 rgba(108,140,255,.4); animation: breathe 3s ease-in-out infinite; }
+.orb:hover { transform: scale(1.02); }
+.orb small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 8px; }
+@keyframes breathe { 50% { box-shadow: 0 0 0 18px rgba(108,140,255,0); } }
+.hero p { color: var(--muted); max-width: 520px; margin: 0 auto; }
+.toggle { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--muted);
+  font-size: 14px; cursor: pointer; user-select: none; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 720px) { .grid3 { grid-template-columns: 1fr; } }
+.feature { padding: 18px; }
+.feature .ico { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+  background: rgba(108,140,255,.14); margin-bottom: 10px; }
+.feature b { display: block; margin-bottom: 2px; }
+.feature span { color: var(--muted); font-size: 13px; }
+.notice { display: flex; gap: 12px; align-items: flex-start; border-color: rgba(255,138,61,.4); margin-bottom: 16px; }
+.notice code { background: var(--surface2); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+
+/* Progress */
+.progress-head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 4px solid var(--surface2);
+  border-top-color: var(--accent); animation: spin 1s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress-head h2 { margin: 0; font-size: 20px; }
+.progress-head .muted { color: var(--muted); font-size: 14px; }
+.bar { height: 6px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin: 6px 0 18px; }
+.bar > div { height: 100%; background: var(--accent); width: 0; transition: width .6s ease; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.steps li { display: flex; align-items: center; gap: 12px; padding: 10px 0; color: var(--faint); }
+.steps li + li { border-top: 1px solid var(--border); }
+.steps li.done { color: var(--text); }
+.steps li.active { color: var(--text); font-weight: 600; }
+.dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  border: 2px solid var(--border); font-size: 12px; }
+.done .dot { background: var(--low); border-color: var(--low); color: #fff; }
+.active .dot { border-color: var(--accent); border-top-color: transparent; animation: spin 1s linear infinite; }
+.live { margin-top: 14px; color: var(--muted); font-size: 13px; min-height: 20px; }
+
+/* Results */
+.verdict { display: flex; gap: 18px; align-items: center; padding: 26px; }
+.verdict .big { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.verdict h2 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.3px; }
+.verdict p { margin: 0; color: var(--muted); }
+.counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+.count { text-align: center; padding: 14px 6px; }
+.count b { display: block; font-size: 24px; }
+.count span { font-size: 11px; font-weight: 700; letter-spacing: .6px; color: var(--muted); text-transform: uppercase; }
+.finding { padding: 18px 20px; display: grid; grid-template-columns: 44px 1fr; gap: 14px; }
+.finding + .finding { margin-top: 10px; }
+.finding .ico { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; }
+.finding h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pill { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+  padding: 2px 9px; border-radius: 999px; }
+.finding .where { color: var(--muted); font-size: 13px; margin: 2px 0 10px; font-family: ui-monospace, monospace; }
+.finding .label { font-size: 11px; font-weight: 700; letter-spacing: .6px; color: var(--faint); text-transform: uppercase; }
+.finding .text { margin: 2px 0 10px; }
+.finding .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+details.safe summary { cursor: pointer; color: var(--muted); padding: 6px 4px; list-style: none; }
+details.safe summary::before { content: "▸ "; }
+details.safe[open] summary::before { content: "▾ "; }
+.footer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
+ol.check { margin: 0; padding-left: 20px; color: var(--text); }
+ol.check li { margin: 6px 0; }
+
+/* Modals */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 20px; z-index: 10; }
+.sheet { width: min(460px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 26px; text-align: center; }
+.sheet h2 { margin: 0 0 4px; }
+.sheet p { color: var(--muted); margin: 6px 0; }
+.gauge-value { font-size: 56px; font-weight: 700; letter-spacing: -2px; line-height: 1; }
+.qr { background: #fff; border-radius: 14px; padding: 12px; width: 240px; margin: 16px auto; }
+.qr svg { width: 100%; height: auto; display: block; }
+.steps-small { text-align: left; color: var(--muted); font-size: 14px; padding-left: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+      <rect width="40" height="40" rx="10" fill="#0B0D10"/>
+      <g fill="none" stroke="#6C8CFF" stroke-width="2.2"><circle cx="20" cy="20" r="13"/><circle cx="20" cy="20" r="8.5"/><circle cx="20" cy="20" r="4"/></g>
+      <path d="M20 20 L20 7 A13 13 0 0 1 31.3 13.5 Z" fill="#6C8CFF" opacity=".35"/>
+      <circle cx="25.5" cy="13" r="2.4" fill="#fff"/>
+    </svg>
+    <div><h1>SpyGuard</h1><div class="sub">Hidden camera &amp; tracker check</div></div>
+    <div class="spacer"></div>
+    <button class="btn small" id="phoneBtn">📱 Connect my phone</button>
+  </header>
+
+  <!-- HOME -->
+  <section id="home">
+    <div id="nmapNotice" class="card notice hidden">
+      <div>⚠️</div>
+      <div><b>One part is missing.</b> SpyGuard can still check nearby WiFi and Bluetooth, but to check devices on
+        this WiFi please ask someone to run <code>sudo apt install nmap</code> once.</div>
+    </div>
+    <div class="card hero">
+      <button class="orb" id="scanBtn">Scan this room<small>Takes about 3 minutes</small></button>
+      <p>Checks this WiFi, nearby WiFi networks and Bluetooth for hidden cameras and trackers.
+        Everything stays on this computer.</p>
+      <label class="toggle"><input type="checkbox" id="quick"> Quick scan (about 1 minute, less thorough)</label>
+    </div>
+    <div class="section-title">What SpyGuard checks</div>
+    <div class="grid3">
+      <div class="card feature"><div class="ico">📶</div><b>This WiFi</b><span>Cameras streaming video or showing a camera web page</span></div>
+      <div class="card feature"><div class="ico">📡</div><b>Nearby networks</b><span>Camera hotspots and cameras on other WiFi networks</span></div>
+      <div class="card feature"><div class="ico">🔷</div><b>Bluetooth</b><span>AirTags and other trackers, Bluetooth cameras</span></div>
+    </div>
+  </section>
+
+  <!-- PROGRESS -->
+  <section id="progress" class="hidden">
+    <div class="card">
+      <div class="progress-head">
+        <div class="spinner"></div>
+        <div style="flex:1"><h2>Scanning…</h2><div class="muted" id="elapsed">Please keep this window open</div></div>
+        <button class="btn small ghost" id="stopBtn">Stop</button>
+      </div>
+      <div class="bar"><div id="barFill"></div></div>
+      <ul class="steps" id="steps"></ul>
+      <div class="live" id="live"></div>
+      <details class="safe" style="margin-top:6px"><summary style="font-size:13px">Show details</summary>
+        <div class="live" id="raw" style="font-family:ui-monospace,monospace;margin-top:4px"></div></details>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="hidden">
+    <div class="card verdict" id="verdict"></div>
+    <div class="counts" id="counts"></div>
+    <div id="attention"></div>
+    <div id="check"></div>
+    <div id="safe"></div>
+    <div class="section-title">Do this too: a quick look around</div>
+    <div class="card"><ol class="check" id="checklist"></ol></div>
+    <div class="footer-actions">
+      <button class="btn primary" id="againBtn">↻ Scan again</button>
+      <button class="btn" id="reportBtn">📄 Open full report</button>
+    </div>
+  </section>
+</div>
+
+<!-- FIND MODAL -->
+<div class="modal hidden" id="findModal">
+  <div class="sheet">
+    <h2 id="findTitle">Find it</h2>
+    <p id="findSub">Walk around slowly and watch the number</p>
+    <svg width="240" height="200" viewBox="0 0 240 200" style="margin:14px auto 0;display:block">
+      <path d="M 37.1 172.9 A 110 110 0 1 1 202.9 172.9" stroke="var(--surface2)" stroke-width="16" fill="none" stroke-linecap="round"/>
+      <path id="arc" d="" stroke="var(--accent)" stroke-width="16" fill="none" stroke-linecap="round"/>
+      <foreignObject x="20" y="60" width="200" height="110">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="text-align:center">
+          <div class="gauge-value" id="gaugeValue">—</div>
+          <div style="color:var(--muted);font-size:13px">signal (dBm)</div>
+          <div id="heat" style="font-weight:700;margin-top:6px">Searching…</div>
+        </div>
+      </foreignObject>
+    </svg>
+    <p id="findHelp">Higher number (closer to 0) = closer. Turn slowly, then walk toward where it's highest.</p>
+    <button class="btn" id="findClose" style="margin-top:12px">Close</button>
+  </div>
+</div>
+
+<!-- PHONE MODAL -->
+<div class="modal hidden" id="phoneModal">
+  <div class="sheet">
+    <h2>Connect your phone</h2>
+    <p>See these results in the SpyGuard app on your phone.</p>
+    <div class="qr" id="qr"></div>
+    <ol class="steps-small">
+      <li>Make sure the phone is on the same WiFi as this computer.</li>
+      <li>Open SpyGuard on the phone → <b>Settings</b> → <b>Scan QR</b>.</li>
+      <li>Point it at this code. Done!</li>
+    </ol>
+    <p id="phoneNote" style="font-size:13px"></p>
+    <button class="btn" id="phoneClose" style="margin-top:8px">Close</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const T = new URLSearchParams(location.search).get('t') || '';
+  const api = (path, opts = {}) => fetch(`${path}${path.includes('?') ? '&' : '?'}t=${T}`, opts).then(r => r.json());
+  const $ = id => document.getElementById(id);
+  const show = id => ['home', 'progress', 'results'].forEach(s => $(s).classList.toggle('hidden', s !== id));
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  const RISK = {
+    CRITICAL: { label: 'Likely camera', color: 'var(--critical)' },
+    HIGH: { label: 'Suspicious', color: 'var(--high)' },
+    MODERATE: { label: 'Worth checking', color: 'var(--moderate)' },
+    LOW: { label: 'Probably fine', color: 'var(--low)' },
+    INFO: { label: 'Safe', color: 'var(--info)' },
+  };
+  const SOURCE = {
+    lan: { icon: '📶', where: 'On this WiFi' },
+    'nearby-wifi': { icon: '📡', where: 'Nearby WiFi network' },
+    ble: { icon: '🔷', where: 'Bluetooth' },
+    'rf-monitor': { icon: '📡', where: 'Another WiFi network nearby' },
+  };
+  const CHECKLIST = [
+    'Turn off the lights and slowly shine your phone’s flashlight around the room. A camera lens shows up as a tiny bright dot.',
+    'Point your phone’s front camera at dark corners. Night-vision cameras show up as glowing dots on the screen.',
+    'Look closely at smoke detectors, USB chargers, clocks, picture frames, speakers and TV boxes.',
+    'Check anything facing the bed, shower or toilet, and any small hole you can’t explain.',
+    'Found something? Don’t touch or unplug it. Take a photo and report it to the host or platform.',
+  ];
+  $('checklist').innerHTML = CHECKLIST.map(c => `<li>${esc(c)}</li>`).join('');
+
+  let monitorOK = false;
+  let trusted = {};
+  let poll = null;
+
+  // Keep the local service alive while the window is open
+  setInterval(() => api('/api/ping').catch(() => {}), 15000);
+
+  async function refreshStatus() {
+    const s = await api('/api/status');
+    monitorOK = s.monitor;
+    trusted = s.trusted || {};
+    $('nmapNotice').classList.toggle('hidden', s.nmap);
+    return s;
+  }
+
+  function renderProgress(job) {
+    const steps = job.steps;
+    $('steps').innerHTML = steps.map((label, i) => {
+      const cls = i < job.step ? 'done' : i === job.step ? 'active' : '';
+      return `<li class="${cls}"><span class="dot">${i < job.step ? '✓' : ''}</span>${esc(label)}</li>`;
+    }).join('');
+    $('barFill').style.width = `${Math.min(100, (job.step / steps.length) * 100 + 4)}%`;
+    const m = Math.floor(job.elapsed / 60), sec = job.elapsed % 60;
+    $('elapsed').textContent = `${m ? m + ' min ' : ''}${sec} s · Please keep this window open`;
+    const hints = [
+      'Checking this computer’s WiFi connection…',
+      'Looking for every device connected to this WiFi…',
+      'Asking each device what it is…',
+      'Checking WiFi networks and Bluetooth devices around you…',
+      'Taking a closer look at anything that looks like a camera…',
+      'Listening to the airwaves for cameras on other networks. This takes about a minute…',
+      'Putting your results together…',
+    ];
+    $('live').textContent = hints[job.step] || '';
+    $('raw').textContent = job.message || '';
+  }
+
+  function locateTarget(d) {
+    if (d.source === 'nearby-wifi') return `wifi:${d.mac}`;
+    if (d.source === 'ble') return `ble:${d.mac}`;
+    if (d.source === 'rf-monitor') return `mon:${d.mac}`;
+    if (d.source === 'lan' && d.mac && monitorOK) return `mon:${d.mac}`;
+    return '';
+  }
+
+  // scan.py recommendations include command-line hints; keep them human
+  const humanize = t => String(t || '')
+    .replace(/\s*Find it: --locate.*$/i, '')
+    .replace(/use '--locate [^']*' and walk around[^.]*\.?/i, 'use “Find it” and walk around: the signal gets stronger as you get closer.')
+    .replace(/use '--locate [^']*'[^.]*\.?/i, 'use “Find it” to walk toward it.')
+    .replace(/\[NEW since baseline\]\s*/, '')
+    // Scanner messages start with an ALL-CAPS sentence; keep it calm
+    .replace(/^([A-Z][A-Z .,'’-]{5,}[.!])/, m => m[0] + m.slice(1).toLowerCase())
+    .replace(/^(.)/, c => c.toUpperCase());
+
+  function findingCard(d) {
+    const r = RISK[d.risk] || RISK.INFO;
+    const src = SOURCE[d.source] || SOURCE.lan;
+    const target = locateTarget(d);
+    const isTrusted = !!trusted[(d.mac || '').toUpperCase()] || d.device_type?.startsWith('Trusted');
+    const where = [src.where, d.source === 'lan' ? d.ip : '', d.mac].filter(Boolean).join(' · ');
+    return `<div class="card finding">
+      <div class="ico" style="background:color-mix(in srgb, ${r.color} 15%, transparent)">${src.icon}</div>
+      <div>
+        <h3>${esc(d.device_type)}
+          <span class="pill" style="color:${r.color};background:color-mix(in srgb, ${r.color} 15%, transparent)">${r.label}</span>
+          ${d.new ? '<span class="pill" style="color:var(--critical);background:color-mix(in srgb, var(--critical) 15%, transparent)">New</span>' : ''}
+        </h3>
+        <div class="where">${esc(where)}${d.manufacturer && d.manufacturer !== 'Unknown' ? ' · ' + esc(d.manufacturer) : ''}</div>
+        <div class="label">Why</div><div class="text">${esc(humanize(d.evidence))}</div>
+        <div class="label">What to do</div><div class="text">${esc(humanize(d.recommendation))}</div>
+        <div class="actions">
+          ${target ? `<button class="btn small primary" data-find="${esc(target)}" data-title="${esc(d.device_type)}">🎯 Find it</button>` : ''}
+          ${d.mac ? `<button class="btn small" data-trust="${esc(d.mac)}" data-on="${isTrusted ? '0' : '1'}">${isTrusted ? 'Not mine' : '✓ This is mine'}</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderResults(job) {
+    const devices = job.results?.devices || [];
+    const n = { CRITICAL: 0, HIGH: 0, MODERATE: 0, LOW: 0, INFO: 0 };
+    devices.forEach(d => n[d.risk] = (n[d.risk] || 0) + 1);
+    let icon, color, title, text;
+    if (n.CRITICAL) [icon, color, title, text] = ['⚠️', 'var(--critical)', `${n.CRITICAL} likely camera${n.CRITICAL > 1 ? 's' : ''} found`, 'Don’t touch or unplug anything. Take photos, then report it to the host or booking platform. Use “Find it” to locate devices.'];
+    else if (n.HIGH) [icon, color, title, text] = ['🔍', 'var(--high)', `${n.HIGH} suspicious device${n.HIGH > 1 ? 's' : ''} to check`, 'These look like cameras or trackers but aren’t confirmed. Have a look using “Find it”.'];
+    else if (n.MODERATE) [icon, color, title, text] = ['🙂', 'var(--moderate)', 'Mostly clear', `${n.MODERATE} device${n.MODERATE > 1 ? 's are' : ' is'} worth a quick look. Nothing looks like a camera for sure.`];
+    else [icon, color, title, text] = ['✅', 'var(--low)', 'All clear', 'No cameras or trackers found on WiFi or Bluetooth. Do the quick look-around below too: cameras that are switched off can’t be detected by radio.'];
+    $('verdict').innerHTML = `<div class="big" style="background:color-mix(in srgb, ${color} 18%, transparent);font-size:30px">${icon}</div>
+      <div><h2 style="color:${color}">${esc(title)}</h2><p>${esc(text)}</p>${job.demo ? '<p style="font-size:12px;margin-top:6px">Demo data · sample results, not a real scan</p>' : ''}</div>`;
+    $('counts').innerHTML = ['CRITICAL', 'HIGH', 'MODERATE', 'LOW'].map(k =>
+      `<div class="card count"><b style="color:${n[k] ? RISK[k].color : 'var(--faint)'}">${n[k]}</b><span>${RISK[k].label}</span></div>`).join('');
+
+    const group = risks => devices.filter(d => risks.includes(d.risk));
+    const att = group(['CRITICAL', 'HIGH']), chk = group(['MODERATE']), safe = group(['LOW', 'INFO']);
+    $('attention').innerHTML = att.length ? `<div class="section-title">Needs your attention</div>${att.map(findingCard).join('')}` : '';
+    $('check').innerHTML = chk.length ? `<div class="section-title">Worth a look</div>${chk.map(findingCard).join('')}` : '';
+    $('safe').innerHTML = safe.length ? `<details class="safe"><summary>Show ${safe.length} device${safe.length > 1 ? 's' : ''} that look fine</summary>${safe.map(findingCard).join('')}</details>` : '';
+    $('reportBtn').classList.toggle('hidden', !job.hasReport);
+  }
+
+  async function tick() {
+    const s = await refreshStatus();
+    const job = s.job;
+    if (!job) { show('home'); return; }
+    if (job.state === 'running') { show('progress'); renderProgress(job); return; }
+    clearInterval(poll); poll = null;
+    if (job.state === 'error') {
+      show('home');
+      alert('The scan couldn’t finish: ' + job.error + '\n\nTry again, or restart SpyGuard.');
+      return;
+    }
+    show('results'); renderResults(job);
+  }
+
+  async function startScan() {
+    const res = await api('/api/scan', { method: 'POST', body: JSON.stringify({ quick: $('quick').checked }) });
+    if (res.error) { alert(res.error); return; }
+    show('progress');
+    renderProgress({ steps: [], step: 0, elapsed: 0, message: 'Starting…' });
+    poll = setInterval(tick, 1200);
+    tick();
+  }
+
+  $('scanBtn').onclick = startScan;
+  $('againBtn').onclick = startScan;
+  $('stopBtn').onclick = () => api('/api/stop', { method: 'POST' });
+  $('reportBtn').onclick = () => window.open(`/api/report?t=${T}`, '_blank');
+
+  // Trust / Find buttons (event delegation)
+  document.body.addEventListener('click', async e => {
+    const trust = e.target.closest('[data-trust]');
+    if (trust) {
+      const r = await api('/api/trust', { method: 'POST', body: JSON.stringify({ mac: trust.dataset.trust, trusted: trust.dataset.on === '1' }) });
+      trusted = r.trusted || {};
+      trust.textContent = trust.dataset.on === '1' ? 'Marked as yours ✓' : 'Removed';
+      trust.disabled = true;
+      return;
+    }
+    const find = e.target.closest('[data-find]');
+    if (find) openFind(find.dataset.find, find.dataset.title);
+  });
+
+  // Find it
+  let stream = null;
+  function arcPath(f) {
+    const start = Math.PI * 0.75, sweep = Math.PI * 1.5 * Math.max(0.001, Math.min(1, f));
+    const p = a => `${120 + 110 * Math.cos(a)} ${110 + 110 * Math.sin(a)}`;
+    return `M ${p(start)} A 110 110 0 ${sweep > Math.PI ? 1 : 0} 1 ${p(start + sweep)}`;
+  }
+  function setGauge(dbm) {
+    if (dbm == null) { $('gaugeValue').textContent = '—'; $('heat').textContent = 'Searching…'; $('arc').setAttribute('d', ''); return; }
+    const f = (dbm + 95) / 60;
+    const [label, color] = dbm >= -50 ? ['Very hot', 'var(--critical)'] : dbm >= -62 ? ['Hot', 'var(--high)'] : dbm >= -75 ? ['Warm', 'var(--moderate)'] : ['Cold', 'var(--info)'];
+    $('gaugeValue').textContent = Math.round(dbm);
+    $('heat').textContent = label; $('heat').style.color = color;
+    $('arc').setAttribute('d', arcPath(f)); $('arc').setAttribute('stroke', color);
+  }
+  function openFind(target, title) {
+    $('findTitle').textContent = `Find: ${title}`;
+    $('findSub').textContent = 'Walk around slowly with the laptop and watch the number';
+    $('findHelp').textContent = 'Higher number (closer to 0) = closer. Turn slowly, then walk toward where it’s highest.';
+    setGauge(null);
+    $('findModal').classList.remove('hidden');
+    let smooth = null;
+    stream = new EventSource(`/api/locate?target=${encodeURIComponent(target)}&t=${T}`);
+    stream.onmessage = ev => {
+      const d = JSON.parse(ev.data);
+      if (d.error) { $('findHelp').textContent = d.error; return; }
+      if (d.rssi == null) return;
+      smooth = smooth == null ? d.rssi : smooth * 0.7 + d.rssi * 0.3;
+      setGauge(smooth);
+    };
+  }
+  $('findClose').onclick = () => { stream?.close(); stream = null; $('findModal').classList.add('hidden'); };
+
+  // Phone link
+  $('phoneBtn').onclick = async () => {
+    $('phoneModal').classList.remove('hidden');
+    $('qr').innerHTML = '<p style="color:#555">Preparing…</p>';
+    const p = await api('/api/phone');
+    $('qr').innerHTML = p.qr || `<p style="color:#333;word-break:break-all;font-size:12px">${esc(p.link)}</p>`;
+    $('phoneNote').textContent = p.ready ? '' : 'Tip: run a scan first so there are results to send.';
+  };
+  $('phoneClose').onclick = () => $('phoneModal').classList.add('hidden');
+
+  tick().then(() => { if ($('progress').classList.contains('hidden') === false) poll = setInterval(tick, 1200); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# SpyGuard desktop app for Linux.
+#   ./spyguard            open the app (asks for your password in a system dialog)
+#   ./spyguard --install  add SpyGuard to your applications menu
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+py="$here/.venv/bin/python"
+
+if [ "${1:-}" = "--install" ]; then
+  apps="$HOME/.local/share/applications"
+  mkdir -p "$apps"
+  cat > "$apps/spyguard.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=SpyGuard
+Comment=Check a room for hidden cameras and trackers
+Exec=$here/spyguard
+Icon=$here/mobile/assets/icon.png
+Terminal=false
+Categories=Utility;Security;Network;
+StartupWMClass=spyguard
+EOF
+  chmod +x "$apps/spyguard.desktop"
+  command -v update-desktop-database >/dev/null && update-desktop-database "$apps" >/dev/null 2>&1 || true
+  echo "SpyGuard added to your applications menu."
+  exit 0
+fi
+
+notify() { command -v notify-send >/dev/null && notify-send -i "$here/mobile/assets/icon.png" "SpyGuard" "$1" || echo "$1"; }
+
+if [ ! -x "$py" ]; then
+  notify "Setting up SpyGuard for the first time…"
+  python3 -m venv "$here/.venv"
+  "$here/.venv/bin/pip" install -q -r "$here/requirements.txt" qrcode
+fi
+
+port=8770
+token="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+url="http://127.0.0.1:$port/?t=$token"
+
+# Scanning needs administrator rights: use the graphical password dialog when we have a desktop
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v pkexec >/dev/null; then
+  pkexec "$py" "$here/scripts/gui.py" --port "$port" --token "$token" --owner "$(id -u)" &
+else
+  sudo "$py" "$here/scripts/gui.py" --port "$port" --token "$token" --owner "$(id -u)" &
+fi
+server=$!
+
+for _ in $(seq 1 120); do
+  curl -fs -o /dev/null "http://127.0.0.1:$port/api/ping?t=$token" && break
+  if ! kill -0 "$server" 2>/dev/null; then notify "SpyGuard couldn't start (password cancelled?)"; exit 1; fi
+  sleep 0.5
+done
+
+# An app-style window if Chrome/Chromium is installed, otherwise the default browser
+for b in google-chrome chromium chromium-browser microsoft-edge brave-browser; do
+  if command -v "$b" >/dev/null; then
+    "$b" --app="$url" --class=spyguard --window-size=980,860 >/dev/null 2>&1 &
+    wait "$server"
+    exit 0
+  fi
+done
+xdg-open "$url" >/dev/null 2>&1 &
+wait "$server"

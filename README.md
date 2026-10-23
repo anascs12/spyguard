@@ -46,16 +46,36 @@ automatic lens/IR detection), **Magnet** (magnetometer sweep) and **Settings** (
 Source and build instructions: [`mobile/`](mobile/README.md).
 
 Link the phone to the laptop scanner to see the laptop's results, including other-network detection, in the app:
-run `./privacy-scan --serve` and scan the QR code under **Settings → Laptop scanner**.
+click **Connect my phone** in the laptop app (or run `./privacy-scan --serve`) and scan the QR code under
+**Settings → Laptop scanner**.
 
-## Laptop scanner
+## Laptop app
+
+A simple desktop app for Linux: one big **Scan this room** button, progress in plain words, and a clear verdict with
+what to do. No terminal needed once it's installed.
+
+<p align="center">
+  <img src="docs/screenshots/laptop-home.png" width="420" alt="SpyGuard laptop app home">
+  <img src="docs/screenshots/laptop-results.png" width="420" alt="SpyGuard laptop app results">
+</p>
+
+**Install once:**
 
 ```bash
-sudo apt install -y nmap arp-scan avahi-utils   # Debian/Ubuntu (see Prerequisites for others)
-./privacy-scan --lang en                        # sets up a Python venv on first run, then scans
+sudo apt install -y nmap arp-scan avahi-utils    # Debian/Ubuntu (see Prerequisites for others)
+git clone https://github.com/anascs12/spyguard.git && cd spyguard
+./spyguard --install                             # adds SpyGuard to your applications menu
 ```
 
-`./privacy-scan` passes any option through to `scripts/scan.py`; the rest of this document describes them.
+Then open **SpyGuard** from your applications menu. It asks for your password (scanning needs administrator
+rights), sets itself up on first launch, and opens in its own window. Results are saved in `~/SpyGuard/`.
+
+- **Find it** shows a hot/cold meter to walk to a flagged device
+- **Connect my phone** shows a QR code: scan it in the phone app to see the laptop's results there
+- **This is mine** stops your own devices from being flagged again
+- The app stops its background service a minute after you close the window
+
+Prefer the terminal? `./privacy-scan --lang en` runs the same scanner with full options (described below).
 
 ## Running scan.py directly
 
