@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SpyGuard desktop app for Linux.
-#   ./spyguard            open the app (asks for your password in a system dialog)
+#   ./spyguard            open the app (no password needed)
 #   ./spyguard --install  add SpyGuard to your applications menu
+#   ./spyguard --setup    one-time: let nmap/arp-scan scan the network without a password
 set -euo pipefail
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 py="$here/.venv/bin/python"
@@ -26,6 +27,20 @@ EOF
   exit 0
 fi
 
+elevate() {  # graphical password dialog on a desktop, sudo otherwise
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v pkexec >/dev/null; then pkexec "$@"; else sudo "$@"; fi
+}
+
+if [ "${1:-}" = "--setup" ]; then
+  # Grants only raw-network capabilities to these two tools, not general admin rights
+  tools=()
+  for t in nmap arp-scan; do p="$(command -v "$t" || true)"; [ -n "$p" ] && tools+=("$(readlink -f "$p")"); done
+  if [ ${#tools[@]} -eq 0 ]; then echo "Install nmap first: sudo apt install -y nmap arp-scan"; exit 1; fi
+  for t in "${tools[@]}"; do elevate setcap cap_net_raw,cap_net_admin+eip "$t"; done
+  echo "Done. SpyGuard can now scan your network without asking for a password."
+  exit 0
+fi
+
 notify() { command -v notify-send >/dev/null && notify-send -i "$here/mobile/assets/icon.png" "SpyGuard" "$1" || echo "$1"; }
 
 if [ ! -x "$py" ]; then
@@ -38,17 +53,13 @@ port=8770
 token="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 url="http://127.0.0.1:$port/?t=$token"
 
-# Scanning needs administrator rights: use the graphical password dialog when we have a desktop
-if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v pkexec >/dev/null; then
-  pkexec "$py" "$here/scripts/gui.py" --port "$port" --token "$token" --owner "$(id -u)" &
-else
-  sudo "$py" "$here/scripts/gui.py" --port "$port" --token "$token" --owner "$(id -u)" &
-fi
+# Runs as you: no password. (Deep scans ask for it only when you choose them.)
+"$py" "$here/scripts/gui.py" --port "$port" --token "$token" &
 server=$!
 
 for _ in $(seq 1 120); do
   curl -fs -o /dev/null "http://127.0.0.1:$port/api/ping?t=$token" && break
-  if ! kill -0 "$server" 2>/dev/null; then notify "SpyGuard couldn't start (password cancelled?)"; exit 1; fi
+  if ! kill -0 "$server" 2>/dev/null; then notify "SpyGuard couldn't start. Is it already open?"; exit 1; fi
   sleep 0.5
 done
 

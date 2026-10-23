@@ -67,13 +67,18 @@ git clone https://github.com/anascs12/spyguard.git && cd spyguard
 ./spyguard --install                             # adds SpyGuard to your applications menu
 ```
 
-Then open **SpyGuard** from your applications menu. It asks for your password (scanning needs administrator
-rights), sets itself up on first launch, and opens in its own window. Results are saved in `~/SpyGuard/`.
+Then open **SpyGuard** from your applications menu. It opens in its own window without asking for a password.
+The first time, click **Set up now**: your computer asks for your password once so SpyGuard can look at the devices
+on your WiFi, and never again after that. Results are saved in `~/SpyGuard/`.
+
+- **Deep scan** (optional checkbox) also listens for cameras on *other* WiFi networks. Only this asks for your
+  password, each time you choose it, because it needs full administrator rights.
 
 - **Find it** shows a hot/cold meter to walk to a flagged device
 - **Connect my phone** shows a QR code: scan it in the phone app to see the laptop's results there
 - **This is mine** stops your own devices from being flagged again
 - The app stops its background service a minute after you close the window
+- No terminal? `./spyguard --setup` does the same one-time setup
 
 Prefer the terminal? `./privacy-scan --lang en` runs the same scanner with full options (described below).
 

@@ -136,11 +136,20 @@ ol.check li { margin: 6px 0; }
       <div><b>One part is missing.</b> SpyGuard can still check nearby WiFi and Bluetooth, but to check devices on
         this WiFi please ask someone to run <code>sudo apt install nmap</code> once.</div>
     </div>
+    <div id="setupNotice" class="card notice hidden" style="border-color:rgba(108,140,255,.45)">
+      <div>🔑</div>
+      <div style="flex:1"><b>One-time setup.</b> Let SpyGuard look at the devices on this WiFi. Your computer asks for
+        your password once; after that, scans never ask again.
+        <div style="margin-top:10px"><button class="btn small primary" id="setupBtn">Set up now</button>
+        <span id="setupMsg" style="margin-left:10px;color:var(--muted);font-size:13px"></span></div></div>
+    </div>
     <div class="card hero">
       <button class="orb" id="scanBtn">Scan this room<small>Takes about 3 minutes</small></button>
       <p>Checks this WiFi, nearby WiFi networks and Bluetooth for hidden cameras and trackers.
         Everything stays on this computer.</p>
-      <label class="toggle"><input type="checkbox" id="quick"> Quick scan (about 1 minute, less thorough)</label>
+      <div><label class="toggle"><input type="checkbox" id="quick"> Quick scan (about 1 minute, less thorough)</label></div>
+      <div id="deepRow" class="hidden"><label class="toggle"><input type="checkbox" id="deep"> Deep scan: also listen to
+        other WiFi networks (asks for your password)</label></div>
     </div>
     <div class="section-title">What SpyGuard checks</div>
     <div class="grid3">
@@ -261,6 +270,8 @@ ol.check li { margin: 6px 0; }
     monitorOK = s.monitor;
     trusted = s.trusted || {};
     $('nmapNotice').classList.toggle('hidden', s.nmap);
+    $('setupNotice').classList.toggle('hidden', !s.nmap || s.netReady);
+    $('deepRow').classList.toggle('hidden', !s.monitor);
     return s;
   }
 
@@ -365,7 +376,7 @@ ol.check li { margin: 6px 0; }
   }
 
   async function startScan() {
-    const res = await api('/api/scan', { method: 'POST', body: JSON.stringify({ quick: $('quick').checked }) });
+    const res = await api('/api/scan', { method: 'POST', body: JSON.stringify({ quick: $('quick').checked, deep: $('deep').checked }) });
     if (res.error) { alert(res.error); return; }
     show('progress');
     renderProgress({ steps: [], step: 0, elapsed: 0, message: 'Starting…' });
@@ -374,6 +385,12 @@ ol.check li { margin: 6px 0; }
   }
 
   $('scanBtn').onclick = startScan;
+  $('setupBtn').onclick = async () => {
+    $('setupMsg').textContent = 'Waiting for your password…';
+    const r = await api('/api/setup', { method: 'POST' });
+    $('setupMsg').textContent = r.ok ? 'All set!' : 'That didn’t work. Try again.';
+    if (r.ok) setTimeout(refreshStatus, 800);
+  };
   $('againBtn').onclick = startScan;
   $('stopBtn').onclick = () => api('/api/stop', { method: 'POST' });
   $('reportBtn').onclick = () => window.open(`/api/report?t=${T}`, '_blank');

@@ -56,9 +56,10 @@ STEPS = [
 class ScanJob:
     """One scan.py run, parsed into steps and messages."""
 
-    def __init__(self, out_dir: Path, quick: bool, owner: int | None):
+    def __init__(self, out_dir: Path, quick: bool, owner: int | None, deep: bool = False):
         self.out_dir = out_dir
         self.quick = quick
+        self.deep = deep
         self.owner = owner
         self.state = "running"          # running | done | error
         self.step = 0
@@ -75,6 +76,10 @@ class ScanJob:
         cmd = [sys.executable, "-u", str(HERE / "scan.py"), "--lang", "en", "--output-dir", str(self.out_dir)]
         if self.quick:
             cmd.append("--quick")
+        if self.deep and os.geteuid() != 0:
+            cmd = ["pkexec", *cmd]  # deep scan only: system password dialog
+        elif not self.deep:
+            cmd.append("--no-monitor")
         json_path = ""
         try:
             self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -95,6 +100,8 @@ class ScanJob:
                 if m:
                     json_path = m.group(1)
             code = self.proc.wait()
+            if self.deep and code in (126, 127) and not json_path:
+                raise RuntimeError("The password was cancelled, so the deep scan didn’t run.")
             if code != 0 or not json_path:
                 raise RuntimeError(self.message or f"scanner exited with code {code}")
             self.results = json.loads(Path(json_path).read_text(encoding="utf-8"))
@@ -339,6 +346,7 @@ def make_handler(app: App):
                     "job": app.job.status() if app.job else None,
                     "monitor": detectors.monitor_supported(app.iface),
                     "nmap": bool(scan.shutil.which("nmap")),
+                    "netReady": os.geteuid() == 0 or scan.has_net_caps("nmap"),
                     "trusted": app.baseline.trusted,
                 })
             elif url.path == "/api/report":
@@ -371,8 +379,17 @@ def make_handler(app: App):
                 if app.job and app.job.state == "running":
                     self._json({"error": "A scan is already running"}, 409)
                     return
-                app.job = ScanJob(app.out_dir, bool(data.get("quick")), app.owner)
+                app.job = ScanJob(app.out_dir, bool(data.get("quick")), app.owner, bool(data.get("deep")))
                 self._json({"ok": True})
+            elif url.path == "/api/setup":
+                # One-time: give only nmap/arp-scan raw-network capabilities (system password dialog)
+                tools = [os.path.realpath(p) for p in map(scan.shutil.which, ("nmap", "arp-scan")) if p]
+                ok = bool(tools)
+                for tool in tools:
+                    r = subprocess.run(["pkexec", "setcap", "cap_net_raw,cap_net_admin+eip", tool],
+                                       capture_output=True, text=True)
+                    ok = ok and r.returncode == 0
+                self._json({"ok": ok and scan.has_net_caps("nmap")})
             elif url.path == "/api/stop":
                 if app.job:
                     app.job.stop()

@@ -311,6 +311,15 @@ def is_root() -> bool:
         return os.geteuid() == 0
 
 
+def has_net_caps(binary: str) -> bool:
+    """True if binary was granted raw-network capabilities (./spyguard --setup)."""
+    path = shutil.which(binary)
+    if SYSTEM != "Linux" or not path or not shutil.which("getcap"):
+        return False
+    out, _, _ = run_cmd(["getcap", os.path.realpath(path)], timeout=5)
+    return "cap_net_raw" in out
+
+
 def find_nmap_mac_db() -> str | None:
     """Locate the nmap-mac-prefixes file on disk."""
     for p in NMAP_MAC_PATHS:
@@ -576,6 +585,10 @@ class ScanContext:
 
         # Capability flags
         self.is_root = is_root()
+        # Without root, nmap/arp-scan can still do raw scans if granted capabilities
+        self.nmap_priv = self.is_root or has_net_caps("nmap")
+        self.arpscan_priv = self.is_root or has_net_caps("arp-scan")
+        self.nmap_cmd = ["nmap"] + (["--privileged"] if self.nmap_priv and not self.is_root else [])
         self.has_nmap = bool(shutil.which("nmap"))
         self.has_arpscan = bool(shutil.which("arp-scan"))
         self.nmap_mac_db_path = find_nmap_mac_db()
@@ -623,6 +636,8 @@ def phase0_prerequisites(ctx: ScanContext) -> None:
 
     if ctx.is_root:
         log_ok("Running with elevated privileges")
+    elif ctx.nmap_priv:
+        log_ok("Network permissions set up — no administrator needed for scanning")
     else:
         log_warn("Not running as root/admin — some scans will be limited")
         if SYSTEM == "Windows":
@@ -732,7 +747,7 @@ def phase1_host_discovery(ctx: ScanContext) -> None:
     seen_ips: set[str] = set()
 
     # Method 1: arp-scan (Linux/macOS with root)
-    if ctx.has_arpscan and ctx.is_root and SYSTEM != "Windows":
+    if ctx.has_arpscan and ctx.arpscan_priv and SYSTEM != "Windows":
         log_info(f"Running arp-scan on {ctx.interface}...")
         stdout, _, rc = run_cmd(
             ["arp-scan", "-l", "-I", ctx.interface], timeout=60
@@ -752,8 +767,8 @@ def phase1_host_discovery(ctx: ScanContext) -> None:
     # Method 2: nmap ping scan
     log_info(f"Running nmap host discovery on {ctx.subnet}...")
     nmap_grepable = os.path.join(ctx.scan_dir, "nmap_discovery.gnmap")
-    nmap_args = ["nmap", "-sn"]
-    if ctx.is_root and SYSTEM != "Windows":
+    nmap_args = ctx.nmap_cmd + ["-sn"]
+    if ctx.nmap_priv and SYSTEM != "Windows":
         nmap_args.append("-PR")
     nmap_args += [ctx.subnet, "-oG", nmap_grepable]
     run_cmd(nmap_args, timeout=120)
@@ -927,12 +942,12 @@ def phase3_port_scan(ctx: ScanContext) -> None:
     log_info(f"Scanning {len(targets)} devices on camera-specific ports...")
     log_info(f"Ports: {CAMERA_PORTS}")
 
-    scan_type = "-sS" if (ctx.is_root and SYSTEM != "Windows") else "-sT"
+    scan_type = "-sS" if (ctx.nmap_priv and SYSTEM != "Windows") else "-sT"
     nmap_grepable = os.path.join(ctx.scan_dir, "nmap_ports.gnmap")
     nmap_normal = os.path.join(ctx.scan_dir, "nmap_ports.nmap")
 
-    nmap_args = [
-        "nmap", scan_type, "-sV",
+    nmap_args = ctx.nmap_cmd + [
+        scan_type, "-sV",
         "-p", CAMERA_PORTS,
         "-T4", "--open",
         "--version-intensity", "5",
@@ -1191,7 +1206,7 @@ def phase5b_monitor(ctx: ScanContext) -> None:
                  "are covered only by the access-point scan")
         return
     if not ctx.is_root:
-        log_warn("Monitor mode needs root — re-run with sudo")
+        log_warn("Listening to other networks needs administrator mode — skipped")
         return
     if not detectors.monitor_supported(iface):
         log_warn(f"{iface} does not support monitor mode. A USB adapter that does "
@@ -1899,6 +1914,7 @@ def main() -> None:
     json_output = ctx.report_dir / f"privacy-scan-{ctx.timestamp}.json"
     shutil.copy(os.path.join(ctx.scan_dir, "results.json"), json_output)
     ctx.baseline.record(ctx.classifications)
+    fix_ownership(ctx.report_dir)
 
     if args.evidence:
         pack = evidence.build_pack(
@@ -1987,6 +2003,25 @@ def serve_results(ctx: ScanContext, port: int) -> None:
     print()
 
 
+def fix_ownership(path: Path) -> None:
+    """When run via pkexec/sudo, hand results back to the user who asked for them."""
+    uid = os.environ.get("PKEXEC_UID") or os.environ.get("SUDO_UID")
+    if not uid or not ctx_is_posix_root():
+        return
+    import pwd
+
+    try:
+        gid = pwd.getpwuid(int(uid)).pw_gid
+        for p in [path, *path.rglob("*")]:
+            os.chown(p, int(uid), gid)
+    except (OSError, KeyError, ValueError):
+        pass
+
+
+def ctx_is_posix_root() -> bool:
+    return SYSTEM != "Windows" and os.geteuid() == 0
+
+
 def run_pipeline(ctx: ScanContext) -> None:
     """Phases 1-6. Re-run by watch mode on each cycle."""
     if ctx.has_nmap:
@@ -2040,6 +2075,7 @@ def watch_loop(ctx: ScanContext) -> None:
             ctx.baseline.record(ctx.classifications)
             shutil.copy(os.path.join(ctx.scan_dir, "results.json"),
                         ctx.report_dir / f"privacy-scan-{ctx.timestamp}.json")
+            fix_ownership(ctx.report_dir)
     except KeyboardInterrupt:
         print()
         log_info("Watch mode stopped")
