@@ -1,11 +1,12 @@
 import { requestScanPermissions } from '@/lib/permissions';
-import { getState, setState } from '@/state/store';
+import { getState, recordTimeline, setState } from '@/state/store';
 
 import { classifyBle, scanBle } from './ble';
 import { fetchLaptopResults } from './laptop';
 import { networkInfo, scanLan } from './lan';
 import type { Finding, Phase } from './types';
 import { RISK_ORDER } from './types';
+import { classifyUltrasound, scanUltrasound } from './ultrasound';
 import { classifyAccessPoints, scanAccessPoints } from './wifi';
 
 function updatePhase(key: Phase['key'], patch: Partial<Phase>): void {
@@ -90,6 +91,15 @@ export async function runScan(): Promise<void> {
     })(),
   ]);
 
+  // Ultrasound scan (microphone-based, runs after radio scans)
+  try {
+    const usResult = await scanUltrasound();
+    const usFindings = classifyUltrasound(usResult);
+    if (usFindings.length > 0) addFindings(usFindings);
+  } catch {
+    // Microphone permission denied or unavailable
+  }
+
   // Mark trusted and NEW (vs earlier scans on this network)
   setState((s) => {
     const seen = new Set(s.known[networkId] ?? []);
@@ -108,4 +118,7 @@ export async function runScan(): Promise<void> {
       lastScan: Date.now(),
     };
   });
+
+  // Record timeline snapshot for device presence tracking
+  recordTimeline();
 }

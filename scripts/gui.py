@@ -38,6 +38,21 @@ import baseline as baseline_mod  # noqa: E402
 import detectors  # noqa: E402
 import scan  # noqa: E402
 
+try:
+    import timeline as timeline_mod  # noqa: E402
+except ImportError:
+    timeline_mod = None  # type: ignore[assignment]
+
+try:
+    import sinkhole as sinkhole_mod  # noqa: E402
+except ImportError:
+    sinkhole_mod = None  # type: ignore[assignment]
+
+try:
+    import onvif_audit as onvif_mod  # noqa: E402
+except ImportError:
+    onvif_mod = None  # type: ignore[assignment]
+
 PAGE = HERE / "gui" / "index.html"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -373,6 +388,18 @@ def make_handler(app: App):
                 singles = app.baseline.compare_rooms()
                 self._json({"rooms": {name: len(devs) for name, devs in rooms.items()},
                             "singleRoom": singles})
+            elif url.path == "/api/timeline":
+                if timeline_mod:
+                    self._json({"data": timeline_mod._load_timeline(),
+                                "suspicious": timeline_mod.analyze_suspicious()})
+                else:
+                    self._json({"data": {"devices": {}, "snapshots": []}, "suspicious": []})
+            elif url.path == "/api/sinkhole":
+                if sinkhole_mod:
+                    self._json({"enabled": sinkhole_mod.is_enabled(),
+                                "domains": sinkhole_mod.get_blocked_domains()})
+                else:
+                    self._json({"enabled": False, "domains": [], "unavailable": True})
             else:
                 self.send_error(404)
 
@@ -403,6 +430,37 @@ def make_handler(app: App):
                 if app.job:
                     app.job.stop()
                 self._json({"ok": True})
+            elif url.path == "/api/sinkhole":
+                action = str(data.get("action", ""))
+                if not sinkhole_mod:
+                    self._json({"error": "Sinkhole module not available"}, 500)
+                elif action == "enable":
+                    count = sinkhole_mod.enable(data.get("extra"))
+                    self._json({"ok": True, "count": count})
+                elif action == "disable":
+                    was = sinkhole_mod.disable()
+                    self._json({"ok": True, "wasActive": was})
+                else:
+                    self._json({"error": "action must be enable or disable"}, 400)
+            elif url.path == "/api/timeline-record":
+                if timeline_mod:
+                    snap = timeline_mod.record_snapshot()
+                    self._json({"ok": True, "snapshot": snap})
+                else:
+                    self._json({"error": "Timeline module not available"}, 500)
+            elif url.path == "/api/onvif-audit":
+                targets = data.get("targets", [])
+                if not onvif_mod:
+                    self._json({"error": "ONVIF audit module not available"}, 500)
+                elif not targets:
+                    self._json({"error": "No targets specified"}, 400)
+                else:
+                    results = []
+                    for ip in targets[:10]:
+                        results.extend(onvif_mod.audit_target(ip))
+                    self._json({"results": [{"ip": r.ip, "port": r.port, "protocol": r.protocol,
+                                             "username": r.username, "brand": r.brand_hint,
+                                             "device": r.device_info} for r in results]})
             elif url.path == "/api/trust":
                 mac = str(data.get("mac", ""))
                 if data.get("trusted", True):

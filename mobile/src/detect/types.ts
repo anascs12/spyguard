@@ -3,7 +3,7 @@ export type Risk = 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | 'INFO';
 export const RISK_ORDER: Risk[] = ['CRITICAL', 'HIGH', 'MODERATE', 'LOW', 'INFO'];
 
 /** Where a finding came from. Locatable sources carry an RSSI we can track. */
-export type Source = 'lan' | 'wifi' | 'ble' | 'laptop';
+export type Source = 'lan' | 'wifi' | 'ble' | 'laptop' | 'ultrasound';
 
 export interface Finding {
   id: string;

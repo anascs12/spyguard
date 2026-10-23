@@ -39,17 +39,24 @@ phone (allow "install unknown apps" when asked). Android 7.0+ on a 64-bit phone.
 | **RF signal heatmap** (map signal strength around the room) | ✅ Heatmap tab | — |
 | **Multi-room comparison** (flag devices unique to one room) | ✅ Settings | ✅ `--room`, `--compare-rooms` |
 | **Scheduled background scans** with push notifications | ✅ Settings | ✅ `--watch` |
+| **Ultrasonic beacon detection** (18-22 kHz microphone analysis) | ✅ during scan | — |
+| **Thermal anomaly hints** (import FLIR/Seek images, mark hot spots) | ✅ Thermal tab | — |
+| **Device timeline** (track presence patterns, flag night-only devices) | ✅ Settings | ✅ `timeline.py` |
+| **DNS sinkhole** (block camera cloud uploads via /etc/hosts) | — | ✅ `sinkhole.py` |
+| **ONVIF credential audit** (test for factory-default passwords) | — | ✅ `onvif_audit.py` |
+| **Zigbee/Z-Wave sniffer** (CC2531 dongle, smart-home cameras) | — | ✅ `zigbee.py` |
 | Distance estimation for BLE devices | ✅ | — |
 | Evidence pack, watch mode, trusted devices | trusted devices | ✅ |
 
-Every check is **detection-only**: SpyGuard never logs into devices, guesses passwords, joins other people's networks
-or decrypts traffic.
+Every check is **detection-only**: SpyGuard never logs into devices, joins other people's networks
+or decrypts traffic. The ONVIF audit tests known factory-default credentials only.
 
 ## Android app
 
-Six tabs: **Scan** (one tap), **Find** (hot/cold locator with vibration), **Lens** (flashlight + red filter +
-automatic lens/IR detection), **Heatmap** (walk around and map signal strength on a grid to pinpoint a device),
-**Magnet** (magnetometer sweep) and **Settings** (trusted devices, laptop link, scheduled auto-scans, room comparison).
+Seven tabs: **Scan** (one tap, includes ultrasound beacon detection), **Find** (hot/cold locator with vibration),
+**Lens** (flashlight + red filter + automatic lens/IR detection), **Heatmap** (walk around and map signal strength
+on a grid), **Thermal** (import thermal camera images and mark hot spots), **Magnet** (magnetometer sweep)
+and **Settings** (trusted devices, laptop link, scheduled auto-scans, room comparison, device timeline).
 Source and build instructions: [`mobile/`](mobile/README.md).
 
 Link the phone to the laptop scanner to see the laptop's results, including other-network detection, in the app:
@@ -222,6 +229,53 @@ sudo python3 scripts/scan.py --compare-rooms        # highlight single-room devi
 
 The mobile app has the same feature under Settings → Room comparison.
 
+### Device timeline
+
+Track which devices appear and disappear over hours. A camera that only shows up at night is more
+suspicious than one that's always on.
+
+```bash
+sudo python3 scripts/timeline.py --record           # save a snapshot now
+sudo python3 scripts/timeline.py --show             # display timeline
+sudo python3 scripts/timeline.py --watch 15         # auto-record every 15 min
+sudo python3 scripts/timeline.py --suspicious       # show devices with unusual patterns
+```
+
+The mobile app automatically builds a timeline from every scan (Settings → Device timeline).
+
+### DNS sinkhole
+
+Block spy-camera cloud uploads by redirecting known P2P camera domains to 127.0.0.1. While active,
+cameras on the local network cannot phone home.
+
+```bash
+sudo python3 scripts/sinkhole.py --enable           # block camera cloud domains
+sudo python3 scripts/sinkhole.py --disable          # restore /etc/hosts
+sudo python3 scripts/sinkhole.py --status           # show current state
+```
+
+### ONVIF credential audit
+
+Test discovered cameras for factory-default passwords. Detection-only: reports which cameras are
+unsecured, never streams or changes any settings.
+
+```bash
+python3 scripts/onvif_audit.py 192.168.1.100        # single IP
+python3 scripts/onvif_audit.py --from-scan results.json  # audit all HIGH+ from a scan
+```
+
+### Zigbee / Z-Wave sniffer
+
+Detect smart-home spy devices on 802.15.4 and Z-Wave. Requires a CC2531 USB dongle (Zigbee) or a
+Z-Wave USB stick.
+
+```bash
+sudo python3 scripts/zigbee.py                      # auto-detect dongle
+sudo python3 scripts/zigbee.py --channel 15         # specific Zigbee channel
+sudo python3 scripts/zigbee.py --zwave              # also scan Z-Wave
+sudo python3 scripts/zigbee.py --duration 120       # listen for 2 min
+```
+
 ### Windows (Admin PowerShell)
 
 ```powershell
@@ -238,9 +292,10 @@ python scripts\scan.py --quick --lang en
 3. **Port Scan** — Check 20 camera-specific ports (RTSP, HTTP, vendor-proprietary)
 4. **Service Discovery** — mDNS/Bonjour, UPnP/SSDP, ONVIF WS-Discovery with device model lookup
 4b. **Nearby Wireless** — Other WiFi networks' access points, Bluetooth LE trackers and cameras
-5. **Deep Inspection** — HTTP banner grabbing, real RTSP handshake (detects password-free video streams)
+5. **Deep Inspection** — HTTP banner grabbing, real RTSP handshake, spy-camera firmware fingerprinting
 5b. **Over-the-Air Capture** — Monitor mode on all channels: cameras on any nearby network
-6. **Risk Classification** — Correlate all evidence into risk levels, apply trust list and baseline
+5c. **Traffic Anomaly Detection** — DNS cache, conntrack, and upload monitoring for P2P camera traffic
+6. **Risk Classification** — Spy-device database + all evidence → risk levels, trust list and baseline
 7. **Report** — Terminal output + HTML report + JSON
 
 ## Risk Levels

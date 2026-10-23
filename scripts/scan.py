@@ -41,6 +41,16 @@ import evidence  # noqa: E402
 import spydevices  # noqa: E402
 import traffic as traffic_mod  # noqa: E402
 
+try:
+    import timeline as timeline_mod  # noqa: E402
+except ImportError:
+    timeline_mod = None  # type: ignore[assignment]
+
+try:
+    import onvif_audit as onvif_mod  # noqa: E402
+except ImportError:
+    onvif_mod = None  # type: ignore[assignment]
+
 # ---------------------------------------------------------------------------
 # Optional imports with graceful degradation
 # ---------------------------------------------------------------------------
@@ -2060,6 +2070,11 @@ def main() -> None:
              "scanner_ip": ctx.my_ip, "counts": ctx.counts},
         )
         log_ok(f"Evidence pack: {pack}")
+
+    # Record device timeline snapshot
+    if timeline_mod:
+        timeline_mod.record_snapshot(ctx.classifications)
+        log_ok("Timeline snapshot recorded")
 
     # Final summary
     duration = int(time.time() - ctx.start_time)

@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fetchLaptopResults, parseLink } from '@/detect/laptop';
 import { disableScheduledScans, enableScheduledScans } from '@/detect/scheduled';
-import { compareRooms, saveRoomScan, setState, useStore } from '@/state/store';
+import { compareRooms, getSuspiciousDevices, saveRoomScan, setState, useStore } from '@/state/store';
 import { Button, Card, Icon, Screen, SectionTitle } from '@/ui/components';
 import { radius, riskColors, space, type, usePalette } from '@/ui/theme';
 
@@ -118,6 +118,9 @@ export default function SettingsScreen() {
 
       <SectionTitle>Room comparison</SectionTitle>
       <RoomComparisonSection />
+
+      <SectionTitle>Device timeline</SectionTitle>
+      <DeviceTimelineSection />
 
       <SectionTitle>History</SectionTitle>
       <Card>
@@ -265,6 +268,69 @@ function RoomComparisonSection() {
         <Text style={[type.small, { color: riskColors.LOW, marginTop: space.md }]}>
           All devices appear in every room (likely infrastructure).
         </Text>
+      )}
+    </Card>
+  );
+}
+
+function DeviceTimelineSection() {
+  const c = usePalette();
+  const timeline = useStore((s) => s.timeline);
+  const deviceTimelines = useStore((s) => s.deviceTimelines);
+
+  const suspicious = timeline.length >= 3 ? getSuspiciousDevices() : [];
+  const deviceCount = Object.keys(deviceTimelines).length;
+
+  return (
+    <Card>
+      <Text style={[type.small, { color: c.textMuted, lineHeight: 19 }]}>
+        Each scan records a timeline snapshot. Over multiple scans, devices with
+        suspicious patterns (intermittent, night-only) are flagged.
+      </Text>
+      <View style={{ flexDirection: 'row', gap: space.lg, marginTop: space.md }}>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={[type.body, { color: c.text, fontWeight: '700', fontSize: 20 }]}>{timeline.length}</Text>
+          <Text style={[type.caption, { color: c.textMuted }]}>snapshots</Text>
+        </View>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={[type.body, { color: c.text, fontWeight: '700', fontSize: 20 }]}>{deviceCount}</Text>
+          <Text style={[type.caption, { color: c.textMuted }]}>devices tracked</Text>
+        </View>
+      </View>
+      {suspicious.length > 0 && (
+        <View style={{ marginTop: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }}>
+          <Text style={[type.body, { color: riskColors.HIGH, fontWeight: '600' }]}>
+            {suspicious.length} device{suspicious.length > 1 ? 's' : ''} with unusual patterns
+          </Text>
+          {suspicious.map((s) => (
+            <View key={s.id} style={{ marginTop: space.sm }}>
+              <Text style={[type.small, { color: c.text }]}>{s.id.replace(/^\w+:/, '')}</Text>
+              {s.reasons.map((r) => (
+                <Text key={r} style={[type.caption, { color: riskColors.MODERATE, marginLeft: space.sm }]}>
+                  {r}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      )}
+      {timeline.length >= 3 && suspicious.length === 0 && (
+        <Text style={[type.small, { color: riskColors.LOW, marginTop: space.md }]}>
+          No suspicious activity patterns detected.
+        </Text>
+      )}
+      {timeline.length > 0 && (
+        <View style={{ marginTop: space.md }}>
+          <Button
+            kind="secondary" icon="delete-outline" label="Clear timeline"
+            onPress={() => {
+              Alert.alert('Clear timeline?', 'All timeline data will be erased.', [
+                { text: 'Cancel' },
+                { text: 'Clear', style: 'destructive', onPress: () => setState({ timeline: [], deviceTimelines: {} }) },
+              ]);
+            }}
+          />
+        </View>
       )}
     </Card>
   );
