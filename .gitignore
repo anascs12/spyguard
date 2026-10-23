@@ -1,5 +1,4 @@
 __pycache__/
 *.pyc
-.claude/
 privacy-scan-results
 .venv/

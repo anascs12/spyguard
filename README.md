@@ -271,10 +271,6 @@ Major short-term rental platforms prohibit indoor surveillance cameras:
 6. Leave if you feel unsafe
 7. Consider contacting local law enforcement
 
-## As a Claude Code Skill
-
-Install by copying this directory to your Claude Code skills path. The skill triggers on phrases like "scan for cameras", "hidden camera", "privacy scan", "surveillance scan", etc.
-
 ## Credits and license
 
 SpyGuard builds on [privacy-scanner](https://github.com/maluta/privacy-scanner) by
