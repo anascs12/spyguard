@@ -41,6 +41,10 @@ export default function RootLayout() {
           <NativeTabs.Trigger.Icon sf="map" md="layers" />
           <NativeTabs.Trigger.Label>Heatmap</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="thermal">
+          <NativeTabs.Trigger.Icon sf="thermometer" md="thermostat" />
+          <NativeTabs.Trigger.Label>Thermal</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
         <NativeTabs.Trigger name="magnet">
           <NativeTabs.Trigger.Icon sf="safari" md="explore" />
           <NativeTabs.Trigger.Label>Magnet</NativeTabs.Trigger.Label>

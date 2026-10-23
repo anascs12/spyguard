@@ -18,6 +18,11 @@ import detectors  # noqa: E402
 import scan  # noqa: E402
 import spydevices  # noqa: E402
 
+try:
+    import sinkhole as sinkhole_mod  # noqa: E402
+except ImportError:
+    sinkhole_mod = None  # type: ignore[assignment]
+
 
 def main() -> None:
     data = {
@@ -46,6 +51,8 @@ def main() -> None:
             {"ports": sorted(combo), "desc": desc}
             for combo, desc in spydevices.SPY_PORT_COMBOS
         ],
+        "p2pDomains": spydevices.P2P_DOMAINS,
+        "sinkholeDomains": sinkhole_mod.SINKHOLE_DOMAINS if sinkhole_mod else spydevices.P2P_DOMAINS,
     }
     out = ROOT / "mobile" / "src" / "data" / "signatures.json"
     out.parent.mkdir(parents=True, exist_ok=True)

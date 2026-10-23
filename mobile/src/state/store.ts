@@ -16,6 +16,18 @@ export interface ScheduledScan {
   nextRun: number | null;
 }
 
+export interface TimelineEntry {
+  timestamp: number;
+  deviceIds: string[];
+}
+
+export interface DeviceTimeline {
+  firstSeen: number;
+  lastSeen: number;
+  seenCount: number;
+  windows: { start: number; end: number }[];
+}
+
 export interface AppState {
   scanning: boolean;
   /** showing sample data (privacyscanner://?demo=1) */
@@ -34,9 +46,12 @@ export interface AppState {
   rooms: RoomScan[];
   /** Scheduled background scans */
   schedule: ScheduledScan;
+  /** Device timeline for presence tracking */
+  timeline: TimelineEntry[];
+  deviceTimelines: Record<string, DeviceTimeline>;
 }
 
-const PERSISTED = ['trusted', 'known', 'laptop', 'rooms', 'schedule'] as const;
+const PERSISTED = ['trusted', 'known', 'laptop', 'rooms', 'schedule', 'timeline', 'deviceTimelines'] as const;
 const KEY = 'privacy-scanner/v1';
 
 let state: AppState = {
@@ -52,6 +67,8 @@ let state: AppState = {
   locateTarget: null,
   rooms: [],
   schedule: { enabled: false, intervalMinutes: 60, nextRun: null },
+  timeline: [],
+  deviceTimelines: {},
 };
 const listeners = new Set<() => void>();
 
@@ -107,6 +124,73 @@ export function saveRoomScan(room: string): void {
       ],
     };
   });
+}
+
+export function recordTimeline(): void {
+  const s = getState();
+  const now = Date.now();
+  const deviceIds = s.findings.map((f) => f.id);
+
+  const entry: TimelineEntry = { timestamp: now, deviceIds };
+
+  const deviceTimelines = { ...s.deviceTimelines };
+  for (const id of deviceIds) {
+    const existing = deviceTimelines[id];
+    if (!existing) {
+      deviceTimelines[id] = {
+        firstSeen: now, lastSeen: now, seenCount: 1,
+        windows: [{ start: now, end: now }],
+      };
+    } else {
+      existing.lastSeen = now;
+      existing.seenCount += 1;
+      const lastWindow = existing.windows[existing.windows.length - 1];
+      if (lastWindow && now - lastWindow.end < 30 * 60 * 1000) {
+        lastWindow.end = now;
+      } else {
+        existing.windows.push({ start: now, end: now });
+      }
+      deviceTimelines[id] = { ...existing };
+    }
+  }
+
+  setState({ timeline: [...s.timeline, entry], deviceTimelines });
+}
+
+export function getSuspiciousDevices(): { id: string; reasons: string[] }[] {
+  const s = getState();
+  const results: { id: string; reasons: string[] }[] = [];
+  const totalSnapshots = s.timeline.length;
+  if (totalSnapshots < 3) return [];
+
+  for (const [id, tl] of Object.entries(s.deviceTimelines)) {
+    const reasons: string[] = [];
+    const ratio = tl.seenCount / totalSnapshots;
+    if (ratio > 0.1 && ratio < 0.7) {
+      reasons.push(`Intermittent: ${tl.seenCount}/${totalSnapshots} scans (${Math.round(ratio * 100)}%)`);
+    }
+    if (tl.windows.length >= 3) {
+      reasons.push(`Turns on/off: ${tl.windows.length} separate windows`);
+    }
+    const firstIds = new Set(s.timeline[0]?.deviceIds ?? []);
+    if (!firstIds.has(id) && tl.seenCount > 1) {
+      reasons.push('Appeared after initial scan');
+    }
+    // Night-only pattern
+    let nightCount = 0;
+    let dayCount = 0;
+    for (const w of tl.windows) {
+      const hour = new Date(w.start).getHours();
+      if (hour >= 22 || hour <= 6) nightCount++;
+      else dayCount++;
+    }
+    if (nightCount >= 2 && dayCount === 0) {
+      reasons.push(`Night-only: seen only 10 PM – 6 AM`);
+    }
+    if (reasons.length > 0) results.push({ id, reasons });
+  }
+
+  return results.sort((a, b) => b.reasons.length - a.reasons.length);
 }
 
 export function compareRooms(): { id: string; onlyIn: string }[] {

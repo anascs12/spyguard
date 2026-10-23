@@ -49,7 +49,12 @@ header .spacer { flex: 1; }
   font-size: 14px; cursor: pointer; user-select: none; }
 .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-@media (max-width: 720px) { .grid3 { grid-template-columns: 1fr; } }
+.grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (max-width: 720px) { .grid3, .grid2 { grid-template-columns: 1fr; } }
+.tool-card { padding: 18px; }
+.tool-card b { display: block; margin-bottom: 2px; }
+.tool-card span { display: block; font-size: 13px; }
+.tool-card code { font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px; }
 .feature { padding: 18px; }
 .feature .ico { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
   background: rgba(108,140,255,.14); margin-bottom: 10px; }
@@ -165,6 +170,10 @@ ol.check li { margin: 6px 0; }
       <div class="card feature"><div class="ico">🕵️</div><b>Spy camera database</b><span>Matches against known spy camera brands and models</span></div>
       <div class="card feature"><div class="ico">📤</div><b>Upload detection</b><span>Catches devices streaming video to the cloud</span></div>
       <div class="card feature"><div class="ico">🗺️</div><b>Room comparison</b><span>Devices in only one room are more suspicious</span></div>
+      <div class="card feature"><div class="ico">📡</div><b>Zigbee/Z-Wave</b><span>Sniffer for smart-home spy devices (CC2531 dongle)</span></div>
+      <div class="card feature"><div class="ico">🔑</div><b>Credential audit</b><span>Tests cameras for factory-default passwords</span></div>
+      <div class="card feature"><div class="ico">🚫</div><b>DNS sinkhole</b><span>Block camera cloud uploads while you stay</span></div>
+      <div class="card feature"><div class="ico">📊</div><b>Device timeline</b><span>Track which devices appear and disappear over hours</span></div>
     </div>
   </section>
 
@@ -193,6 +202,45 @@ ol.check li { margin: 6px 0; }
     <div id="safe"></div>
     <div class="section-title">Do this too: a quick look around</div>
     <div class="card"><ol class="check" id="checklist"></ol></div>
+
+    <div class="section-title">Advanced tools</div>
+    <div class="grid2">
+      <div class="card tool-card">
+        <b>🚫 DNS Sinkhole</b>
+        <span class="muted">Block camera cloud uploads</span>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn small primary" onclick="toggleSinkhole(true)">Enable</button>
+          <button class="btn small" onclick="toggleSinkhole(false)">Disable</button>
+        </div>
+        <div class="muted" id="sinkholeStatus" style="font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="card tool-card">
+        <b>📊 Device Timeline</b>
+        <span class="muted">Track device presence patterns</span>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn small primary" onclick="recordTimeline()">Record now</button>
+          <button class="btn small" onclick="showTimeline()">View</button>
+        </div>
+        <div class="muted" id="timelineStatus" style="font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="card tool-card">
+        <b>🔑 Credential Audit</b>
+        <span class="muted">Test cameras for default passwords</span>
+        <div style="margin-top:10px">
+          <button class="btn small primary" onclick="runAudit()">Audit found cameras</button>
+        </div>
+        <div class="muted" id="auditStatus" style="font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="card tool-card">
+        <b>📡 Zigbee Sniffer</b>
+        <span class="muted">Needs CC2531 USB dongle</span>
+        <div style="margin-top:10px">
+          <button class="btn small" disabled>Coming to CLI</button>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:6px">Run: <code>sudo python3 scripts/zigbee.py</code></div>
+      </div>
+    </div>
+
     <div class="footer-actions">
       <button class="btn primary" id="againBtn">↻ Scan again</button>
       <button class="btn" id="reportBtn">📄 Open full report</button>
@@ -465,7 +513,78 @@ ol.check li { margin: 6px 0; }
   $('phoneClose').onclick = () => $('phoneModal').classList.add('hidden');
 
   tick().then(() => { if ($('progress').classList.contains('hidden') === false) poll = setInterval(tick, 1200); });
+
+  // Check sinkhole status on load
+  api('/api/sinkhole').then(d => {
+    const el = $('sinkholeStatus');
+    if (d.unavailable) el.textContent = 'Module not available';
+    else if (d.enabled) el.textContent = `Active — ${d.domains.length} domains blocked`;
+    else el.textContent = 'Inactive';
+  }).catch(() => {});
 })();
+
+async function toggleSinkhole(enable) {
+  const el = $('sinkholeStatus');
+  el.textContent = enable ? 'Enabling…' : 'Disabling…';
+  try {
+    const r = await fetch(`/api/sinkhole?t=${T}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({action: enable ? 'enable' : 'disable'})
+    }).then(r => r.json());
+    if (r.ok) {
+      el.textContent = enable ? `Active — ${r.count} domains blocked` : 'Disabled';
+    } else {
+      el.textContent = r.error || 'Failed';
+    }
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function recordTimeline() {
+  const el = $('timelineStatus');
+  el.textContent = 'Recording…';
+  try {
+    const r = await fetch(`/api/timeline-record?t=${T}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'
+    }).then(r => r.json());
+    if (r.ok) el.textContent = `Recorded ${r.snapshot.device_count} devices`;
+    else el.textContent = r.error || 'Failed';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function showTimeline() {
+  const el = $('timelineStatus');
+  try {
+    const r = await api('/api/timeline');
+    const devs = Object.keys(r.data.devices).length;
+    const snaps = r.data.snapshots.length;
+    const susp = r.suspicious.length;
+    let msg = `${devs} devices, ${snaps} snapshots`;
+    if (susp > 0) msg += ` — ⚠️ ${susp} suspicious`;
+    el.textContent = msg;
+  } catch(e) { el.textContent = 'No timeline data yet'; }
+}
+
+async function runAudit() {
+  const el = $('auditStatus');
+  el.textContent = 'Auditing…';
+  try {
+    // Get IPs from last scan results
+    const status = await api('/api/status');
+    const devs = status.job?.results?.devices || [];
+    const targets = devs.filter(d => ['CRITICAL','HIGH'].includes(d.risk)).map(d => d.ip).filter(Boolean);
+    if (!targets.length) { el.textContent = 'No HIGH+ devices to audit'; return; }
+    const r = await fetch(`/api/onvif-audit?t=${T}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({targets})
+    }).then(r => r.json());
+    if (r.results?.length) {
+      el.innerHTML = `⚠️ ${r.results.length} camera(s) with default credentials!`;
+      el.style.color = 'var(--critical)';
+    } else {
+      el.textContent = `Tested ${targets.length} device(s) — all secured`;
+    }
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
 </script>
 </body>
 </html>
