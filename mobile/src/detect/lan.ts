@@ -2,7 +2,8 @@ import { PrivacyNative, type NetworkInfo } from '@modules/privacy-native';
 
 import {
   CAMERA_HEADERS, CAMERA_KEYWORDS_HIGH, CAMERA_PORTS, CAMERA_TITLE, HTTP_PORTS,
-  RTSP_PATHS, RTSP_PORTS, VENDOR_PORTS, WEAK_VENDOR_PORTS,
+  P2P_PORTS, RTSP_PATHS, RTSP_PORTS, SPY_MODEL, VENDOR_PORTS, WEAK_VENDOR_PORTS,
+  matchSpyPortCombo,
 } from './signatures';
 import type { Finding, Risk } from './types';
 
@@ -140,15 +141,27 @@ export function classifyLanHost(
   gateway: string,
 ): Finding {
   const camHttp = http.find((h) => h.cameraHeader || h.cameraTitle || h.cameraKeywords.length);
+  const spyHttp = http.find((h) => SPY_MODEL && (SPY_MODEL.test(h.title) || SPY_MODEL.test(h.server)));
   const titles = http.map((h) => h.title || h.server).filter(Boolean);
   const hasVendor = ports.some((p) => VENDOR_PORTS.has(p));
   const hasWeak = ports.some((p) => WEAK_VENDOR_PORTS.has(p));
+  const hasP2P = ports.some((p) => P2P_PORTS.has(p));
+  const spyCombo = matchSpyPortCombo(ports);
   const portList = ports.join(', ');
   let risk: Risk;
   let title: string;
   let evidence: string;
 
-  if (rtsp?.openStream) {
+  if (spyCombo) {
+    [risk, title] = ['CRITICAL', 'Known spy camera (port signature)'];
+    evidence = `Ports match known spy-camera product: ${spyCombo}`;
+  } else if (spyHttp) {
+    [risk, title] = ['CRITICAL', 'Known spy camera model'];
+    evidence = `Identifies as a known spy/hidden camera: ${spyHttp.title || spyHttp.server}`;
+  } else if (hasP2P && (hasVendor || camHttp)) {
+    [risk, title] = ['CRITICAL', 'Camera with P2P relay'];
+    evidence = `Camera protocol port + P2P relay port (${portList}) — likely streaming to cloud`;
+  } else if (rtsp?.openStream) {
     [risk, title] = ['CRITICAL', 'Live video stream, no password'];
     evidence = `RTSP ${rtsp.server} on port ${rtsp.port} serves video at ${rtsp.openStream} without a password`;
   } else if (rtsp) {

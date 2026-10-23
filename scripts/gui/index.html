@@ -150,12 +150,21 @@ ol.check li { margin: 6px 0; }
       <div><label class="toggle"><input type="checkbox" id="quick"> Quick scan (about 1 minute, less thorough)</label></div>
       <div id="deepRow" class="hidden"><label class="toggle"><input type="checkbox" id="deep"> Deep scan: also listen to
         other WiFi networks (asks for your password)</label></div>
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center;justify-content:center">
+        <label style="color:var(--muted);font-size:14px">Room:</label>
+        <input type="text" id="roomInput" placeholder="bedroom, bathroom…" style="height:36px;padding:0 12px;border-radius:10px;
+          border:1px solid var(--border);background:var(--surface2);color:var(--text);font:inherit;font-size:14px;width:200px">
+      </div>
+      <div style="color:var(--faint);font-size:12px;margin-top:4px">Name each room for multi-room comparison</div>
     </div>
     <div class="section-title">What SpyGuard checks</div>
     <div class="grid3">
       <div class="card feature"><div class="ico">📶</div><b>This WiFi</b><span>Cameras streaming video or showing a camera web page</span></div>
       <div class="card feature"><div class="ico">📡</div><b>Nearby networks</b><span>Camera hotspots and cameras on other WiFi networks</span></div>
       <div class="card feature"><div class="ico">🔷</div><b>Bluetooth</b><span>AirTags and other trackers, Bluetooth cameras</span></div>
+      <div class="card feature"><div class="ico">🕵️</div><b>Spy camera database</b><span>Matches against known spy camera brands and models</span></div>
+      <div class="card feature"><div class="ico">📤</div><b>Upload detection</b><span>Catches devices streaming video to the cloud</span></div>
+      <div class="card feature"><div class="ico">🗺️</div><b>Room comparison</b><span>Devices in only one room are more suspicious</span></div>
     </div>
   </section>
 
@@ -248,6 +257,7 @@ ol.check li { margin: 6px 0; }
     'nearby-wifi': { icon: '📡', where: 'Nearby WiFi network' },
     ble: { icon: '🔷', where: 'Bluetooth' },
     'rf-monitor': { icon: '📡', where: 'Another WiFi network nearby' },
+    traffic: { icon: '📤', where: 'Suspicious network traffic' },
   };
   const CHECKLIST = [
     'Turn off the lights and slowly shine your phone’s flashlight around the room. A camera lens shows up as a tiny bright dot.',
@@ -285,13 +295,14 @@ ol.check li { margin: 6px 0; }
     const m = Math.floor(job.elapsed / 60), sec = job.elapsed % 60;
     $('elapsed').textContent = `${m ? m + ' min ' : ''}${sec} s · Please keep this window open`;
     const hints = [
-      'Checking this computer’s WiFi connection…',
-      'Looking for every device connected to this WiFi…',
-      'Asking each device what it is…',
-      'Checking WiFi networks and Bluetooth devices around you…',
-      'Taking a closer look at anything that looks like a camera…',
-      'Listening to the airwaves for cameras on other networks. This takes about a minute…',
-      'Putting your results together…',
+      ‘Checking this computer’s WiFi connection…’,
+      ‘Looking for every device connected to this WiFi…’,
+      ‘Asking each device what it is…’,
+      ‘Checking WiFi networks and Bluetooth devices around you…’,
+      ‘Taking a closer look at anything that looks like a camera…’,
+      ‘Listening to the airwaves for cameras on other networks. This takes about a minute…’,
+      ‘Watching for devices secretly streaming video to the cloud…’,
+      ‘Putting your results together…’,
     ];
     $('live').textContent = hints[job.step] || '';
     $('raw').textContent = job.message || '';
@@ -376,7 +387,8 @@ ol.check li { margin: 6px 0; }
   }
 
   async function startScan() {
-    const res = await api('/api/scan', { method: 'POST', body: JSON.stringify({ quick: $('quick').checked, deep: $('deep').checked }) });
+    const room = $('roomInput').value.trim();
+    const res = await api('/api/scan', { method: 'POST', body: JSON.stringify({ quick: $('quick').checked, deep: $('deep').checked, room }) });
     if (res.error) { alert(res.error); return; }
     show('progress');
     renderProgress({ steps: [], step: 0, elapsed: 0, message: 'Starting…' });

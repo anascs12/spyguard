@@ -1,0 +1,5 @@
+./privacy-scan --lang en              # full scan (asks for your password)
+./privacy-scan --lang en --serve      # scan + show a QR code to link the phone app
+./privacy-scan --optical 0            # lens finder using the laptop webcam
+./privacy-scan --locate wifi:<BSSID>  # hot/cold meter for a nearby network
+

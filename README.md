@@ -28,12 +28,18 @@ phone (allow "install unknown apps" when asked). Android 7.0+ on a 64-bit phone.
 | | Phone app | Laptop scanner |
 |---|:---:|:---:|
 | Cameras on your WiFi (RTSP video, camera web pages, camera ports) | ✅ | ✅ (+ manufacturer by MAC) |
+| **Known spy-camera database** (V380, XMEye, ESP32-CAM, 100+ models) | ✅ | ✅ |
 | Camera setup hotspots and camera-brand networks nearby | ✅ | ✅ |
 | AirTag / Find My, Google Find My, Tile, SmartTag, Chipolo trackers | ✅ | ✅ |
+| **Network traffic anomaly detection** (P2P relay, sustained uploads) | — | ✅ |
 | Cameras talking on **other** WiFi networks (monitor mode) | — | ✅ Linux + root |
 | Switched-off / offline cameras (lens glint, infrared LEDs) | ✅ Lens tab | ✅ `--optical` |
 | Electronics hidden in objects (magnetometer) | ✅ Magnet tab | — |
 | Walk to a device with a hot/cold signal meter | ✅ Find tab | ✅ `--locate`, `--survey` |
+| **RF signal heatmap** (map signal strength around the room) | ✅ Heatmap tab | — |
+| **Multi-room comparison** (flag devices unique to one room) | ✅ Settings | ✅ `--room`, `--compare-rooms` |
+| **Scheduled background scans** with push notifications | ✅ Settings | ✅ `--watch` |
+| Distance estimation for BLE devices | ✅ | — |
 | Evidence pack, watch mode, trusted devices | trusted devices | ✅ |
 
 Every check is **detection-only**: SpyGuard never logs into devices, guesses passwords, joins other people's networks
@@ -41,8 +47,9 @@ or decrypts traffic.
 
 ## Android app
 
-Five tabs: **Scan** (one tap), **Find** (hot/cold locator with vibration), **Lens** (flashlight + red filter +
-automatic lens/IR detection), **Magnet** (magnetometer sweep) and **Settings** (trusted devices, laptop link).
+Six tabs: **Scan** (one tap), **Find** (hot/cold locator with vibration), **Lens** (flashlight + red filter +
+automatic lens/IR detection), **Heatmap** (walk around and map signal strength on a grid to pinpoint a device),
+**Magnet** (magnetometer sweep) and **Settings** (trusted devices, laptop link, scheduled auto-scans, room comparison).
 Source and build instructions: [`mobile/`](mobile/README.md).
 
 Link the phone to the laptop scanner to see the laptop's results, including other-network detection, in the app:
@@ -202,6 +209,19 @@ sudo python3 scripts/scan.py --evidence                           # zip of repor
 
 Devices are remembered per network (by router MAC), so later scans mark new arrivals as **[NEW]**.
 
+### Multi-room comparison
+
+Save a scan per room, then compare to find devices that appear in only one — more suspicious than a
+router that shows up everywhere.
+
+```bash
+sudo python3 scripts/scan.py --room bedroom
+sudo python3 scripts/scan.py --room bathroom
+sudo python3 scripts/scan.py --compare-rooms        # highlight single-room devices
+```
+
+The mobile app has the same feature under Settings → Room comparison.
+
 ### Windows (Admin PowerShell)
 
 ```powershell
@@ -266,20 +286,7 @@ Major short-term rental platforms prohibit indoor surveillance cameras:
 - **[Booking.com](https://partner.booking.com/en-us/help/legal-security/security/requirements-and-regulations-surveillance-devices)** — Cameras allowed only in common/public areas, must be visible and disclosed. Prohibited where guests expect privacy.
 - **[Vrbo](https://www.vrbo.com/tlp/trust-and-safety/use-of-surveillance-policy)** — Indoor cameras prohibited. Outdoor cameras allowed only for security at access points, must be disclosed.
 
-## If You Find a Camera
-
-1. Do NOT disconnect or tamper with it
-2. Photograph the device and its location
-3. Save the scan report as evidence
-4. Contact Airbnb: App → Your Trips → Get Help → Report a safety concern
-5. Airbnb Emergency: +1-855-424-7262
-6. Leave if you feel unsafe
-7. Consider contacting local law enforcement
-
-## Credits and license
-
-SpyGuard builds on [privacy-scanner](https://github.com/maluta/privacy-scanner) by
-[Tiago Maluta](https://github.com/maluta), who created the original laptop scanner (see [AUTHORS](AUTHORS)).
+## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) for details.
 

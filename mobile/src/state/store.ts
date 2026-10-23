@@ -4,6 +4,18 @@ import { useSyncExternalStore } from 'react';
 import type { LaptopLink } from '@/detect/laptop';
 import type { Finding, Phase } from '@/detect/types';
 
+export interface RoomScan {
+  room: string;
+  timestamp: number;
+  findingIds: string[];
+}
+
+export interface ScheduledScan {
+  enabled: boolean;
+  intervalMinutes: number;
+  nextRun: number | null;
+}
+
 export interface AppState {
   scanning: boolean;
   /** showing sample data (privacyscanner://?demo=1) */
@@ -18,9 +30,13 @@ export interface AppState {
   known: Record<string, string[]>;
   laptop: LaptopLink | null;
   locateTarget: Finding | null;
+  /** Multi-room comparison */
+  rooms: RoomScan[];
+  /** Scheduled background scans */
+  schedule: ScheduledScan;
 }
 
-const PERSISTED = ['trusted', 'known', 'laptop'] as const;
+const PERSISTED = ['trusted', 'known', 'laptop', 'rooms', 'schedule'] as const;
 const KEY = 'privacy-scanner/v1';
 
 let state: AppState = {
@@ -34,6 +50,8 @@ let state: AppState = {
   known: {},
   laptop: null,
   locateTarget: null,
+  rooms: [],
+  schedule: { enabled: false, intervalMinutes: 60, nextRun: null },
 };
 const listeners = new Set<() => void>();
 
@@ -77,4 +95,30 @@ export function toggleTrusted(f: Finding): void {
       findings: s.findings.map((x) => (x.id === f.id ? { ...x, trusted: !!trusted[f.id] } : x)),
     };
   });
+}
+
+export function saveRoomScan(room: string): void {
+  setState((s) => {
+    const existing = s.rooms.filter((r) => r.room !== room);
+    return {
+      rooms: [
+        ...existing,
+        { room, timestamp: Date.now(), findingIds: s.findings.map((f) => f.id) },
+      ],
+    };
+  });
+}
+
+export function compareRooms(): { id: string; onlyIn: string }[] {
+  const s = getState();
+  if (s.rooms.length < 2) return [];
+  const idRooms: Record<string, Set<string>> = {};
+  for (const room of s.rooms) {
+    for (const id of room.findingIds) {
+      (idRooms[id] ??= new Set()).add(room.room);
+    }
+  }
+  return Object.entries(idRooms)
+    .filter(([, rooms]) => rooms.size === 1)
+    .map(([id, rooms]) => ({ id, onlyIn: [...rooms][0] }));
 }

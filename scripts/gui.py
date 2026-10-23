@@ -49,6 +49,7 @@ STEPS = [
     ("nearby", "Checking nearby WiFi and Bluetooth", {"4b"}),
     ("verify", "Testing suspicious devices", {"5"}),
     ("air", "Listening for cameras on other networks", {"5b"}),
+    ("traffic", "Watching for suspicious uploads", {"5c"}),
     ("results", "Preparing your results", {"6", "7"}),
 ]
 
@@ -56,10 +57,11 @@ STEPS = [
 class ScanJob:
     """One scan.py run, parsed into steps and messages."""
 
-    def __init__(self, out_dir: Path, quick: bool, owner: int | None, deep: bool = False):
+    def __init__(self, out_dir: Path, quick: bool, owner: int | None, deep: bool = False, room: str = ""):
         self.out_dir = out_dir
         self.quick = quick
         self.deep = deep
+        self.room = room
         self.owner = owner
         self.state = "running"          # running | done | error
         self.step = 0
@@ -76,6 +78,8 @@ class ScanJob:
         cmd = [sys.executable, "-u", str(HERE / "scan.py"), "--lang", "en", "--output-dir", str(self.out_dir)]
         if self.quick:
             cmd.append("--quick")
+        if self.room:
+            cmd.extend(["--room", self.room])
         if self.deep and os.geteuid() != 0:
             cmd = ["pkexec", *cmd]  # deep scan only: system password dialog
         elif not self.deep:
@@ -364,6 +368,11 @@ def make_handler(app: App):
                 self._json(app.start_phone_link())
             elif url.path == "/api/locate":
                 self._stream_locate(q.get("target", [""])[0])
+            elif url.path == "/api/rooms":
+                rooms = app.baseline.load_room_scans()
+                singles = app.baseline.compare_rooms()
+                self._json({"rooms": {name: len(devs) for name, devs in rooms.items()},
+                            "singleRoom": singles})
             else:
                 self.send_error(404)
 
@@ -379,7 +388,7 @@ def make_handler(app: App):
                 if app.job and app.job.state == "running":
                     self._json({"error": "A scan is already running"}, 409)
                     return
-                app.job = ScanJob(app.out_dir, bool(data.get("quick")), app.owner, bool(data.get("deep")))
+                app.job = ScanJob(app.out_dir, bool(data.get("quick")), app.owner, bool(data.get("deep")), str(data.get("room", "")))
                 self._json({"ok": True})
             elif url.path == "/api/setup":
                 # One-time: give only nmap/arp-scan raw-network capabilities (system password dialog)

@@ -2,7 +2,7 @@ import { BleManager, type Device } from 'react-native-ble-plx';
 
 import { base64ToBytes } from '@/lib/base64';
 
-import { CAMERA_NAME_STRONG, CAMERA_NAME_WEAK, proximity } from './signatures';
+import { CAMERA_NAME_STRONG, CAMERA_NAME_WEAK, ouiLookup, proximity } from './signatures';
 import type { Finding, Risk } from './types';
 
 let manager: BleManager | null = null;
@@ -66,12 +66,41 @@ async function waitPoweredOn(): Promise<void> {
 export async function scanBle(seconds = 12): Promise<BleAdvert[]> {
   await waitPoweredOn();
   const seen = new Map<string, BleAdvert>();
-  await ble().startDeviceScan(null, { allowDuplicates: false }, (err, d) => {
-    if (!err && d) seen.set(d.id, parse(d));
+  const rssiSamples = new Map<string, number[]>();
+  await ble().startDeviceScan(null, { allowDuplicates: true }, (err, d) => {
+    if (!err && d) {
+      const existing = seen.get(d.id);
+      const parsed = parse(d);
+      if (!existing || (parsed.name && !existing.name)) {
+        seen.set(d.id, parsed);
+      }
+      if (d.rssi != null) {
+        const samples = rssiSamples.get(d.id) ?? [];
+        samples.push(d.rssi);
+        rssiSamples.set(d.id, samples);
+      }
+    }
   });
   await new Promise((r) => setTimeout(r, seconds * 1000));
   await ble().stopDeviceScan();
+  // Use averaged RSSI for better distance estimation
+  for (const [id, advert] of seen) {
+    const samples = rssiSamples.get(id);
+    if (samples && samples.length > 1) {
+      samples.sort((a, b) => a - b);
+      const trimmed = samples.slice(
+        Math.floor(samples.length * 0.1),
+        Math.ceil(samples.length * 0.9),
+      );
+      advert.rssi = Math.round(trimmed.reduce((a, b) => a + b, 0) / trimmed.length);
+    }
+  }
   return [...seen.values()];
+}
+
+/** Estimate distance in meters from RSSI using log-distance path-loss model. */
+export function estimateDistance(rssi: number, txPower = -59, n = 2.5): number {
+  return Math.pow(10, (txPower - rssi) / (10 * n));
 }
 
 /** Live RSSI for one device until stop() is called. */
@@ -111,8 +140,25 @@ export function classifyBle(adverts: BleAdvert[]): Finding[] {
     } else if (a.name && CAMERA_NAME_WEAK.test(a.name)) {
       hit = ['MODERATE', 'Camera-like Bluetooth name', `Name “${a.name}”`];
     }
+    // Check BLE address against known spy-device OUIs (if not randomized)
+    if (!hit && a.id.includes(':')) {
+      const { manufacturer, tier } = ouiLookup(a.id);
+      if (tier === 3) {
+        hit = [close ? 'HIGH' : 'MODERATE', `Known spy cam (${manufacturer})`,
+          `BLE MAC matches known spy-camera manufacturer: ${manufacturer}`];
+      } else if (tier === 1 || tier === 2) {
+        hit = [close ? 'HIGH' : 'MODERATE', `Camera brand (${manufacturer})`,
+          `BLE MAC matches camera manufacturer: ${manufacturer}`];
+      }
+    }
+    // ESP32 BLE detection (common in DIY spy cameras)
+    if (!hit && a.name && /^ESP32|^ESP-|^PROV_/i.test(a.name)) {
+      hit = ['MODERATE', 'ESP32 device', `Name “${a.name}” — ESP32 modules are commonly used in DIY spy cameras`];
+    }
     if (!hit) continue;
     const [risk, title, why] = hit;
+    const dist = a.rssi != null ? estimateDistance(a.rssi) : null;
+    const distStr = dist != null ? ` · ~${dist < 1 ? `${Math.round(dist * 100)} cm` : `${dist.toFixed(1)} m`}` : '';
     out.push({
       id: `ble:${a.id}`,
       risk,
@@ -120,7 +166,7 @@ export function classifyBle(adverts: BleAdvert[]): Finding[] {
       address: a.id,
       title,
       manufacturer: a.name || 'Unknown',
-      evidence: `${why} · ${proximity(a.rssi)}`,
+      evidence: `${why} · ${proximity(a.rssi)}${distStr}`,
       recommendation: 'Use Find to walk toward it. Trackers are often in bags, cars or furniture.',
       rssi: a.rssi,
     });
