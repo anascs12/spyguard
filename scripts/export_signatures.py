@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import detectors  # noqa: E402
 import scan  # noqa: E402
+import spydevices  # noqa: E402
 
 
 def main() -> None:
@@ -37,6 +38,14 @@ def main() -> None:
         "cameraNameStrong": detectors.CAMERA_NAME_STRONG.pattern,
         "cameraNameWeak": detectors.CAMERA_NAME_WEAK.pattern,
         "physicalChecklist": scan.PHYSICAL_CHECKLIST,
+        "spyOuis": spydevices.SPY_OUIS,
+        "spyModelPattern": spydevices.SPY_MODEL_PATTERNS.pattern,
+        "spyHttpServers": spydevices.SPY_HTTP_SERVERS.pattern,
+        "p2pPorts": sorted(spydevices.P2P_PORTS),
+        "spyPortCombos": [
+            {"ports": sorted(combo), "desc": desc}
+            for combo, desc in spydevices.SPY_PORT_COMBOS
+        ],
     }
     out = ROOT / "mobile" / "src" / "data" / "signatures.json"
     out.parent.mkdir(parents=True, exist_ok=True)

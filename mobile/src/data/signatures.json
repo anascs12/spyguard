@@ -242,5 +242,109 @@
   "Look at anything facing the bed, shower or toilet, and any small hole you can't explain",
   "Check for devices plugged in behind furniture or with cables leading nowhere",
   "Unknown device flagged above? Use --survey to measure from 3+ spots and narrow its position"
+ ],
+ "spyOuis": {
+  "A03E6B": "V380",
+  "E8AB20": "V380",
+  "507BF5": "V380",
+  "005043": "XMEye/NETSurveillance",
+  "001272": "XMEye/NETSurveillance",
+  "4C11BF": "XMEye/Dahua-OEM",
+  "5C6267": "iCSee/Yunni",
+  "34EA34": "iCSee/Yunni",
+  "4C57CA": "CamHi",
+  "1CBFCE": "CamHi",
+  "7C2E10": "Wansview",
+  "587A62": "HiSilicon-IPC",
+  "00107B": "HiSilicon-IPC",
+  "C0A5DD": "Sricam",
+  "30AEA4": "Espressif-CAM",
+  "24A160": "Espressif-CAM",
+  "B4E62D": "Espressif-CAM",
+  "240AC4": "Espressif-CAM",
+  "8CAAB5": "Espressif-CAM",
+  "3CE090": "Espressif-CAM",
+  "A4CF12": "Espressif-CAM",
+  "FCAB90": "Espressif-CAM",
+  "D8F15B": "Tuya-CAM",
+  "10D561": "Tuya-CAM",
+  "847127": "Tuya-CAM",
+  "2CAA8E": "Wyze",
+  "7C78B2": "Wyze",
+  "64B80C": "Xiaovv",
+  "DC4E8F": "ESCAM",
+  "CC7A1D": "Anbiux/Hiseeu",
+  "000D81": "Vstarcam",
+  "1C1BBD": "Vstarcam"
+ },
+ "spyModelPattern": "(?i)V380|V380\\s*Pro|XMEye|NETSurveillance|XM\\s*camera|iCSee|Eye4|EseeCloud|CamHi|HiP2P|HDWIFICAM|HDWifiCamPro|Wansview|YI\\s*Home|YI\\s*Dome|Vstarcam|VstarCam|Sricam|SriHome|ESCAM|LeFun|TENVIS|Anbiux|Hiseeu|JOOAN|ZOSI|SANNCE|Xiaovv|Wyzecam|WyzeCam|Reolink\\s*Go|ESP32.?CAM|JAWS/|Boa/0|GoAhead.Webs|GoAhead|uc-httpd|DNVRS-Webs|App-webs|mini\\s*camera|spy\\s*camera|hidden\\s*camera|pinhole|button\\s*cam|nanny\\s*cam|clock\\s*cam|charger\\s*cam|smoke\\s*detector\\s*cam|pen\\s*cam|glasses\\s*cam|teddy\\s*cam",
+ "spyHttpServers": "(?i)^(?:GoAhead-Webs|JAWS/1|Boa/0|uc-httpd|DNVRS-Webs|App-webs|mini_httpd/1)",
+ "p2pPorts": [
+  6789,
+  8899,
+  9527,
+  20188,
+  32100,
+  32108,
+  34567,
+  34599
+ ],
+ "spyPortCombos": [
+  {
+   "ports": [
+    34567,
+    34599
+   ],
+   "desc": "XMEye/NETSurveillance (dual control ports)"
+  },
+  {
+   "ports": [
+    80,
+    32100
+   ],
+   "desc": "Tutk P2P camera (IOTC + HTTP)"
+  },
+  {
+   "ports": [
+    80,
+    9527
+   ],
+   "desc": "HiSilicon debug + HTTP (common spy-cam module)"
+  },
+  {
+   "ports": [
+    80,
+    8899
+   ],
+   "desc": "V380 control + HTTP"
+  },
+  {
+   "ports": [
+    554,
+    8899
+   ],
+   "desc": "V380 RTSP + control"
+  },
+  {
+   "ports": [
+    80,
+    32108
+   ],
+   "desc": "PPPP P2P relay + HTTP (iCSee family)"
+  },
+  {
+   "ports": [
+    6668,
+    20188
+   ],
+   "desc": "Tuya camera P2P + media"
+  },
+  {
+   "ports": [
+    80,
+    6789
+   ],
+   "desc": "Sricam P2P + HTTP"
+  }
  ]
 }

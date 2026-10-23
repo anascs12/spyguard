@@ -1,11 +1,12 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fetchLaptopResults, parseLink } from '@/detect/laptop';
-import { setState, useStore } from '@/state/store';
+import { disableScheduledScans, enableScheduledScans } from '@/detect/scheduled';
+import { compareRooms, saveRoomScan, setState, useStore } from '@/state/store';
 import { Button, Card, Icon, Screen, SectionTitle } from '@/ui/components';
 import { radius, riskColors, space, type, usePalette } from '@/ui/theme';
 
@@ -112,6 +113,12 @@ export default function SettingsScreen() {
         )}
       </Card>
 
+      <SectionTitle>Scheduled scans</SectionTitle>
+      <ScheduledScansSection />
+
+      <SectionTitle>Room comparison</SectionTitle>
+      <RoomComparisonSection />
+
       <SectionTitle>History</SectionTitle>
       <Card>
         <Text style={[type.small, { color: c.textMuted, marginBottom: space.md, lineHeight: 19 }]}>
@@ -140,6 +147,126 @@ export default function SettingsScreen() {
 
       <QrScanner visible={scanning} onClose={() => setScanning(false)} onCode={(code) => (setScanning(false), connect(code))} />
     </Screen>
+  );
+}
+
+function ScheduledScansSection() {
+  const c = usePalette();
+  const schedule = useStore((s) => s.schedule);
+  const [toggling, setToggling] = useState(false);
+
+  const toggle = async (val: boolean) => {
+    setToggling(true);
+    try {
+      if (val) {
+        const ok = await enableScheduledScans(schedule.intervalMinutes);
+        if (!ok) Alert.alert('Permission needed', 'Allow notifications and background activity to use scheduled scans.');
+      } else {
+        await disableScheduledScans();
+      }
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  return (
+    <Card>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flex: 1 }}>
+          <Text style={[type.body, { color: c.text, fontWeight: '600' }]}>Auto-scan</Text>
+          <Text style={[type.small, { color: c.textMuted, lineHeight: 18 }]}>
+            Scan every {schedule.intervalMinutes} min and notify on new devices
+          </Text>
+        </View>
+        <Switch
+          value={schedule.enabled}
+          disabled={toggling}
+          onValueChange={toggle}
+          trackColor={{ true: c.accent }}
+        />
+      </View>
+      {schedule.enabled && schedule.nextRun && (
+        <Text style={[type.small, { color: c.textMuted, marginTop: space.sm }]}>
+          Next scan ~{new Date(schedule.nextRun).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </Text>
+      )}
+      {schedule.enabled && (
+        <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
+          {[30, 60, 120].map((m) => (
+            <View key={m} style={{ flex: 1 }}>
+              <Button
+                kind={schedule.intervalMinutes === m ? 'primary' : 'secondary'}
+                label={m < 60 ? `${m}m` : `${m / 60}h`}
+                onPress={async () => {
+                  await disableScheduledScans();
+                  await enableScheduledScans(m);
+                }}
+              />
+            </View>
+          ))}
+        </View>
+      )}
+    </Card>
+  );
+}
+
+function RoomComparisonSection() {
+  const c = usePalette();
+  const rooms = useStore((s) => s.rooms);
+  const findings = useStore((s) => s.findings);
+  const [roomName, setRoomName] = useState('');
+
+  const singles = rooms.length >= 2 ? compareRooms() : [];
+
+  return (
+    <Card>
+      <Text style={[type.small, { color: c.textMuted, lineHeight: 19 }]}>
+        Save a scan per room to find devices that appear in only one — more suspicious than those seen everywhere.
+      </Text>
+      <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
+        <TextInput
+          value={roomName}
+          onChangeText={setRoomName}
+          placeholder="Room name…"
+          placeholderTextColor={c.textFaint}
+          style={[styles.input, { color: c.text, backgroundColor: c.surfaceAlt, borderColor: c.border, flex: 1, marginVertical: 0 }]}
+        />
+        <Button
+          label="Save"
+          icon="content-save-outline"
+          disabled={!roomName || findings.length === 0}
+          onPress={() => { saveRoomScan(roomName.trim()); setRoomName(''); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }}
+        />
+      </View>
+      {rooms.length > 0 && (
+        <View style={{ marginTop: space.md }}>
+          {rooms.map((r) => (
+            <View key={r.room} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.xs }}>
+              <Icon name="door" size={16} color={c.textMuted} />
+              <Text style={[type.small, { color: c.text, flex: 1 }]}>{r.room}</Text>
+              <Text style={[type.caption, { color: c.textMuted }]}>{r.findingIds.length} devices</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      {singles.length > 0 && (
+        <View style={{ marginTop: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }}>
+          <Text style={[type.body, { color: riskColors.HIGH, fontWeight: '600' }]}>
+            {singles.length} device{singles.length > 1 ? 's' : ''} in only one room
+          </Text>
+          {singles.map((s) => (
+            <Text key={s.id} style={[type.small, { color: c.text, marginTop: space.xs }]}>
+              {s.id.replace(/^\w+:/, '')} — only in {s.onlyIn}
+            </Text>
+          ))}
+        </View>
+      )}
+      {rooms.length >= 2 && singles.length === 0 && (
+        <Text style={[type.small, { color: riskColors.LOW, marginTop: space.md }]}>
+          All devices appear in every room (likely infrastructure).
+        </Text>
+      )}
+    </Card>
   );
 }
 

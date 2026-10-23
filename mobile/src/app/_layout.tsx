@@ -37,6 +37,10 @@ export default function RootLayout() {
           <NativeTabs.Trigger.Icon sf="camera.viewfinder" md="center_focus_strong" />
           <NativeTabs.Trigger.Label>Lens</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="heatmap">
+          <NativeTabs.Trigger.Icon sf="map" md="layers" />
+          <NativeTabs.Trigger.Label>Heatmap</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
         <NativeTabs.Trigger name="magnet">
           <NativeTabs.Trigger.Icon sf="safari" md="explore" />
           <NativeTabs.Trigger.Label>Magnet</NativeTabs.Trigger.Label>

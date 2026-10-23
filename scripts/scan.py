@@ -38,6 +38,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import baseline as baseline_mod  # noqa: E402
 import detectors  # noqa: E402
 import evidence  # noqa: E402
+import spydevices  # noqa: E402
+import traffic as traffic_mod  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Optional imports with graceful degradation
@@ -1246,6 +1248,54 @@ def phase5b_monitor(ctx: ScanContext) -> None:
 
 
 # ===========================================================================
+# Phase 5c: Network Traffic Anomaly Detection
+# ===========================================================================
+
+def phase5c_traffic(ctx: ScanContext) -> None:
+    """Watch for devices making suspicious outbound connections."""
+    if ctx.args.quick:
+        return
+    log_phase("5c", "Network Traffic Analysis")
+
+    deep = ctx.is_root or has_net_caps("tcpdump")
+    anomalies = traffic_mod.scan_traffic(
+        interface=ctx.interface,
+        subnet=ctx.subnet,
+        gateway=ctx.gateway,
+        duration=30,
+        deep=deep,
+    )
+
+    if not anomalies:
+        log_ok("No suspicious outbound traffic detected")
+        return
+
+    log_warn(f"Found {len(anomalies)} traffic anomalies")
+    for a in anomalies:
+        risk = "CRITICAL" if a.anomaly_type == "p2p_relay" else "HIGH"
+        rec = {
+            "p2p_relay": "Device connecting to a known spy-camera cloud relay. Locate it immediately.",
+            "sustained_upload": "Device sustaining high upload — could be streaming video. Investigate.",
+            "camera_port_wan": "Device connecting to video-streaming ports on the internet.",
+        }
+        finding = {
+            "risk": risk,
+            "ip": a.ip,
+            "mac": a.mac,
+            "manufacturer": "",
+            "device_type": f"Traffic: {a.anomaly_type.replace('_', ' ').title()}",
+            "open_ports": "",
+            "evidence": a.detail,
+            "recommendation": rec.get(a.anomaly_type, "Investigate this device."),
+            "source": "traffic",
+        }
+        (log_critical if risk == "CRITICAL" else log_warn)(
+            f"{finding['device_type']} {a.ip}: {a.detail}"
+        )
+        ctx.radio_results.append(finding)
+
+
+# ===========================================================================
 # Phase 5: Deep Inspection (HTTP / RTSP)
 # ===========================================================================
 
@@ -1277,12 +1327,14 @@ def _http_inspect(ip: str, port: str) -> list[dict]:
         return findings
 
     # Check server header
+    server = ""
+    m = re.search(r"(?i)^Server:\s*(.+)$", headers_text, re.MULTILINE)
+    if m:
+        server = m.group(1).strip()
     if re.search(CAMERA_HEADERS, headers_text, re.IGNORECASE):
-        server = ""
-        m = re.search(r"(?i)^Server:\s*(.+)$", headers_text, re.MULTILINE)
-        if m:
-            server = m.group(1).strip()
         findings.append({"ip": ip, "port": port, "type": "CAMERA_HEADER", "detail": server})
+    if spydevices.match_spy_http_server(server):
+        findings.append({"ip": ip, "port": port, "type": "HTTP_SERVER", "detail": server})
 
     # Check body for high-confidence keywords
     if re.search(CAMERA_KEYWORDS_HIGH, body, re.IGNORECASE):
@@ -1298,6 +1350,14 @@ def _http_inspect(ip: str, port: str) -> list[dict]:
         title = title_m.group(1)
         if CAMERA_TITLE_RE.search(title):
             findings.append({"ip": ip, "port": port, "type": "CAMERA_TITLE", "detail": title})
+        if spydevices.match_spy_model(title):
+            findings.append({"ip": ip, "port": port, "type": "SPY_MODEL", "detail": title})
+
+    # Check body for known spy-camera product strings
+    if spydevices.match_spy_model(body[:8192]):
+        matches = spydevices.SPY_MODEL_PATTERNS.findall(body[:8192])[:3]
+        if matches and not any(f["type"] == "SPY_MODEL" for f in findings):
+            findings.append({"ip": ip, "port": port, "type": "SPY_MODEL", "detail": ",".join(matches)})
 
     return findings
 
@@ -1435,6 +1495,18 @@ def phase6_classify(ctx: ScanContext) -> None:
         if "DAHUA_PORT" in deep_types or "XMEYE_PORT" in deep_types:
             has_vendor_port = True
 
+        # Spy-device database matches (before heuristic classification)
+        spy_brand = spydevices.match_spy_oui(mac)
+        spy_combo = spydevices.match_spy_port_combo(open_ports_set)
+        spy_model_hit = any(
+            spydevices.match_spy_model(d.get("detail", ""))
+            for d in ctx.deep_results if d["ip"] == ip
+        )
+        spy_server_hit = any(
+            spydevices.match_spy_http_server(d.get("detail", ""))
+            for d in ctx.deep_results if d["ip"] == ip and d["type"] in ("HTTP_SERVER",)
+        )
+
         # Classification logic
         risk = "INFO"
         device_type = "Unknown"
@@ -1442,7 +1514,36 @@ def phase6_classify(ctx: ScanContext) -> None:
         recommendation = ""
 
         # -- CRITICAL --
-        if has_open_stream:
+        if spy_brand and (has_rtsp or has_vendor_port or spy_combo):
+            risk = "CRITICAL"
+            device_type = f"Known Spy Camera ({spy_brand})"
+            evidence = f"Known spy-camera manufacturer ({spy_brand})"
+            if spy_combo:
+                evidence += f" + signature port combination ({spy_combo})"
+            elif has_rtsp:
+                evidence += " + RTSP video streaming port open"
+            recommendation = "KNOWN SPY CAMERA. Photograph it. Report to the platform/police."
+        elif spy_combo and not classification == "KNOWN_SAFE":
+            risk = "CRITICAL"
+            device_type = "Spy Camera Port Signature"
+            evidence = f"Ports match known spy-camera product: {spy_combo}"
+            recommendation = "PORT PATTERN MATCHES A KNOWN SPY CAMERA. Locate and photograph it."
+        elif spy_model_hit:
+            risk = "CRITICAL"
+            device_type = "Known Spy Camera Model"
+            evidence = "Device identifies as a known spy/hidden camera product"
+            recommendation = "KNOWN SPY CAMERA MODEL. Photograph it. Report to the platform/police."
+        elif spy_server_hit:
+            risk = "HIGH"
+            device_type = "Spy Camera Firmware"
+            evidence = "HTTP server matches firmware used by common spy cameras"
+            recommendation = "Firmware used by spy cameras. Investigate immediately."
+        elif spy_brand:
+            risk = "HIGH"
+            device_type = f"Known Spy Camera Brand ({spy_brand})"
+            evidence = f"MAC matches known spy-camera manufacturer: {spy_brand}"
+            recommendation = "Known spy-camera brand on the network. Locate it physically."
+        elif has_open_stream:
             risk = "CRITICAL"
             device_type = "Live Video Stream (no password)"
             evidence = ctx.rtsp[ip].get("server", "") + " " + next(
@@ -1865,6 +1966,11 @@ def parse_args() -> argparse.Namespace:
                        help="Save a zip of reports + raw data with a SHA-256 manifest")
     track.add_argument("--serve", type=int, nargs="?", const=8765, default=0, metavar="PORT",
                        help="Share results with the mobile app over WiFi (default port 8765)")
+    track.add_argument("--room", metavar="NAME",
+                       help="Label this scan with a room name (bedroom, bathroom, ...). "
+                            "Compare rooms with --compare-rooms to find devices unique to one room")
+    track.add_argument("--compare-rooms", action="store_true",
+                       help="Show devices that appear in only one room scan (more suspicious)")
     return parser.parse_args()
 
 
@@ -1882,6 +1988,29 @@ def main() -> None:
             detectors.locate(args.locate, iface)
         else:
             detectors.survey(args.survey, iface)
+        return
+
+    if args.compare_rooms:
+        report_dir = Path(args.output_dir)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        bl = baseline_mod.Baseline(report_dir)
+        singles = bl.compare_rooms()
+        rooms = bl.load_room_scans()
+        if len(rooms) < 2:
+            print(f"\n  Need at least 2 room scans. Have {len(rooms)}.")
+            print("  Run: python3 scan.py --room bedroom")
+            print("  Then: python3 scan.py --room bathroom")
+            return
+        print(f"\n{BOLD}Room comparison ({len(rooms)} rooms: {', '.join(rooms)}){NC}\n")
+        if not singles:
+            log_ok("All devices appear in every room (likely infrastructure)")
+        else:
+            log_warn(f"{len(singles)} device(s) found in only one room:")
+            for d in singles:
+                icon = {"CRITICAL": ICON_CRITICAL, "HIGH": ICON_HIGH,
+                        "MODERATE": ICON_MODERATE}.get(d.get("risk", ""), ICON_INFO)
+                log_warn(f"  {icon} {d.get('device_type', 'Unknown')} — MAC {d['mac']} "
+                         f"({d.get('manufacturer', '?')}) only in: {d['only_in']}")
         return
 
     print()
@@ -1913,7 +2042,13 @@ def main() -> None:
 
     json_output = ctx.report_dir / f"privacy-scan-{ctx.timestamp}.json"
     shutil.copy(os.path.join(ctx.scan_dir, "results.json"), json_output)
-    ctx.baseline.record(ctx.classifications)
+    ctx.baseline.record(ctx.classifications, room=args.room or "")
+    if args.room:
+        ctx.baseline.save_room_scan(args.room, ctx.classifications)
+        log_ok(f"Room scan saved: {args.room} ({len(ctx.classifications)} devices)")
+        rooms = ctx.baseline.load_room_scans()
+        if len(rooms) >= 2:
+            log_info(f"You have {len(rooms)} room scans. Run --compare-rooms to see devices unique to one room.")
     fix_ownership(ctx.report_dir)
 
     if args.evidence:
@@ -2035,7 +2170,8 @@ def run_pipeline(ctx: ScanContext) -> None:
     phase4b_nearby_wireless(ctx)
     if ctx.has_nmap:
         phase5_deep_inspection(ctx)     # skipped in --quick mode
-    phase5b_monitor(ctx)            # last: may pause the WiFi connection
+    phase5b_monitor(ctx)            # may pause the WiFi connection
+    phase5c_traffic(ctx)            # outbound traffic anomaly detection
     phase6_classify(ctx)
 
 
