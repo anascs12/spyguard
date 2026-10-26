@@ -1,27 +1,40 @@
-# SpyGuard
-
-**Find hidden cameras and trackers in hotel rooms and rentals: an Android app plus a laptop scanner.**
-
-SpyGuard checks your WiFi network, nearby WiFi networks and Bluetooth for cameras and trackers. It also helps you
-find cameras that are switched off or offline, using your phone's camera (lens reflections) and its magnetometer.
-Everything runs on your own devices: no account, no cloud, nothing leaves your phone or laptop.
+<h1 align="center">SpyGuard</h1>
 
 <p align="center">
-  <img src="docs/screenshots/01-scan.png" width="200" alt="Scan results summary">
-  <img src="docs/screenshots/02-findings.png" width="200" alt="Findings list">
-  <img src="docs/screenshots/03-detail.png" width="200" alt="Finding details">
+  <b>Find hidden cameras and trackers in hotel rooms and rentals.</b><br>
+  An Android app and a Linux laptop scanner — everything runs on your own devices.
 </p>
+
 <p align="center">
-  <img src="docs/screenshots/04-find.png" width="200" alt="Hot/cold locator">
-  <img src="docs/screenshots/05-magnet.png" width="200" alt="Magnetometer sweep">
-  <img src="docs/screenshots/06-settings.png" width="200" alt="Settings">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
+  <img src="https://img.shields.io/badge/platform-Android%20%7C%20Linux-success" alt="Platform">
+  <img src="https://img.shields.io/badge/privacy-100%25%20on--device-brightgreen" alt="On-device">
+  <img src="https://img.shields.io/badge/account-none%20required-lightgrey" alt="No account">
+</p>
+
+SpyGuard scans your WiFi, nearby WiFi networks, and Bluetooth for hidden cameras and trackers, and gives you a
+plain-language verdict in about three minutes. It can also find cameras that are switched off, using your phone's
+camera (lens reflections) and magnetometer. **No account, no cloud — nothing ever leaves your phone or laptop.**
+
+<p align="center">
+  <img src="docs/screenshots/laptop-home.png" width="420" alt="SpyGuard laptop app — scan a room">
+  <img src="docs/screenshots/laptop-results.png" width="420" alt="SpyGuard laptop app — results">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/01-scan.png" width="180" alt="Scan results summary">
+  <img src="docs/screenshots/02-findings.png" width="180" alt="Findings list">
+  <img src="docs/screenshots/04-find.png" width="180" alt="Hot/cold locator">
+  <img src="docs/screenshots/05-magnet.png" width="180" alt="Magnetometer sweep">
 </p>
 <p align="center"><sub>Screenshots use the app's built-in demo data, not a real scan.</sub></p>
 
 ## Download
 
-**Android:** grab `spyguard-<version>-arm64.apk` from the [latest release](../../releases/latest) and open it on your
-phone (allow "install unknown apps" when asked). Android 7.0+ on a 64-bit phone.
+**Android** — download `spyguard-<version>-arm64.apk` from the [latest release](../../releases/latest), open it on
+your phone, and allow "install unknown apps" when asked. Requires Android 7.0+ on a 64-bit phone.
+
+**Linux laptop** — see [Laptop app](#laptop-app) below.
 
 ## What it finds
 
@@ -53,10 +66,15 @@ or decrypts traffic. The ONVIF audit tests known factory-default credentials onl
 
 ## Android app
 
-Seven tabs: **Scan** (one tap, includes ultrasound beacon detection), **Find** (hot/cold locator with vibration),
-**Lens** (flashlight + red filter + automatic lens/IR detection), **Heatmap** (walk around and map signal strength
-on a grid), **Thermal** (import thermal camera images and mark hot spots), **Magnet** (magnetometer sweep)
-and **Settings** (trusted devices, laptop link, scheduled auto-scans, room comparison, device timeline).
+Five tabs:
+
+- **Scan** — one tap to check WiFi, nearby networks, and Bluetooth (includes ultrasonic beacon detection)
+- **Find** — hot/cold locator with vibration: walk toward a flagged device
+- **Lens** — flashlight + red filter with automatic lens/infrared reflection detection
+- **Magnet** — magnetometer sweep to find electronics hidden inside objects
+- **More** — trusted devices, laptop link, scheduled auto-scans, room comparison, device timeline, plus the
+  **Heatmap** (map signal strength around a room) and **Thermal** (import FLIR/Seek images) tools
+
 Source and build instructions: [`mobile/`](mobile/README.md).
 
 Link the phone to the laptop scanner to see the laptop's results, including other-network detection, in the app:
@@ -66,12 +84,7 @@ click **Connect my phone** in the laptop app (or run `./privacy-scan --serve`) a
 ## Laptop app
 
 A simple desktop app for Linux: one big **Scan this room** button, progress in plain words, and a clear verdict with
-what to do. No terminal needed once it's installed.
-
-<p align="center">
-  <img src="docs/screenshots/laptop-home.png" width="420" alt="SpyGuard laptop app home">
-  <img src="docs/screenshots/laptop-results.png" width="420" alt="SpyGuard laptop app results">
-</p>
+what to do. No terminal needed once it's installed. (Screenshots at the top of this page.)
 
 **Install once:**
 
