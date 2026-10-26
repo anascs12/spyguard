@@ -435,12 +435,22 @@ def make_handler(app: App):
                 action = str(data.get("action", ""))
                 if not sinkhole_mod:
                     self._json({"error": "Sinkhole module not available"}, 500)
-                elif action == "enable":
-                    count = sinkhole_mod.enable(data.get("extra"))
-                    self._json({"ok": True, "count": count})
-                elif action == "disable":
-                    was = sinkhole_mod.disable()
-                    self._json({"ok": True, "wasActive": was})
+                elif action in ("enable", "disable"):
+                    # Editing /etc/hosts needs root: run the CLI via the system
+                    # password dialog (same as deep scans), unless already root.
+                    cmd = [sys.executable, str(HERE / "sinkhole.py"), f"--{action}"]
+                    if os.geteuid() != 0:
+                        cmd = ["pkexec", *cmd]
+                    r = subprocess.run(cmd, capture_output=True, text=True)
+                    if r.returncode == 0:
+                        if action == "enable":
+                            self._json({"ok": True, "count": len(sinkhole_mod.get_blocked_domains())})
+                        else:
+                            self._json({"ok": True, "wasActive": True})
+                    elif r.returncode in (126, 127):
+                        self._json({"error": "Password cancelled"})
+                    else:
+                        self._json({"error": (r.stderr or r.stdout or "Failed").strip()[:200]})
                 else:
                     self._json({"error": "action must be enable or disable"}, 400)
             elif url.path == "/api/timeline-record":

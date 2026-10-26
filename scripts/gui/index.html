@@ -568,11 +568,14 @@ async function runAudit() {
   const el = $('auditStatus');
   el.textContent = 'Auditing…';
   try {
-    // Get IPs from last scan results
+    // Get IPs from last scan results: any flagged device, or anything with open ports
     const status = await api('/api/status');
     const devs = status.job?.results?.devices || [];
-    const targets = devs.filter(d => ['CRITICAL','HIGH'].includes(d.risk)).map(d => d.ip).filter(Boolean);
-    if (!targets.length) { el.textContent = 'No HIGH+ devices to audit'; return; }
+    const targets = [...new Set(devs
+      .filter(d => ['CRITICAL','HIGH','MODERATE'].includes(d.risk) || d.open_ports)
+      .map(d => d.ip)
+      .filter(ip => ip && ip.includes('.')))];
+    if (!targets.length) { el.textContent = 'No devices with open ports to audit'; return; }
     const r = await fetch(`/api/onvif-audit?t=${T}`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({targets})
