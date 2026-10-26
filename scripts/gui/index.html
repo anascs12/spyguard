@@ -285,6 +285,16 @@ ol.check li { margin: 6px 0; }
   </div>
 </div>
 
+<!-- DETAIL MODAL (timeline / audit results) -->
+<div class="modal hidden" id="detailModal">
+  <div class="sheet" style="width:min(560px,100%);text-align:left;max-height:80vh;display:flex;flex-direction:column">
+    <h2 id="detailTitle" style="text-align:center">Details</h2>
+    <p id="detailSub" style="text-align:center"></p>
+    <div id="detailBody" style="overflow-y:auto;margin:10px 0;flex:1"></div>
+    <button class="btn" style="margin-top:4px;align-self:center" onclick="document.getElementById('detailModal').classList.add('hidden')">Close</button>
+  </div>
+</div>
+
 <script>
 (() => {
   const T = new URLSearchParams(location.search).get('t') || '';
@@ -556,39 +566,83 @@ async function recordTimeline() {
 
 async function showTimeline() {
   const el = $('timelineStatus');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  el.textContent = 'Loading…';
   try {
     const r = await api('/api/timeline');
-    const devs = Object.keys(r.data.devices).length;
-    const snaps = r.data.snapshots.length;
-    const susp = r.suspicious.length;
-    let msg = `${devs} devices, ${snaps} snapshots`;
-    if (susp > 0) msg += ` — ⚠️ ${susp} suspicious`;
-    el.textContent = msg;
-  } catch(e) { el.textContent = 'No timeline data yet'; }
+    const devs = Object.keys(r.data.devices || {}).length;
+    const snaps = (r.data.snapshots || []).length;
+    const susp = r.suspicious || [];
+    el.textContent = `${devs} devices · ${snaps} snapshots`;
+    if (!snaps) {
+      showDetail('Device Timeline', 'No snapshots yet',
+        '<p style="color:var(--muted)">Click “Record now” a few times (ideally over hours) to build a timeline. A device that only appears at certain times is more suspicious.</p>');
+      return;
+    }
+    let body = `<p style="color:var(--muted);margin-bottom:12px">${snaps} snapshot${snaps>1?'s':''} recorded · ${devs} device${devs>1?'s':''} seen</p>`;
+    if (susp.length) {
+      body += susp.map(s => {
+        const name = esc(s.name || s.manufacturer || s.device_id || s.ip || 'Unknown device');
+        const where = esc([s.ip, s.device_id].filter(Boolean).join(' · '));
+        const reasons = (s.reasons || []).map(x => `<div style="font-size:13px;color:var(--muted);margin-top:2px">→ ${esc(x)}</div>`).join('');
+        return `<div class="card" style="padding:12px 14px;margin-bottom:8px">
+          <div style="font-weight:600">🟡 ${name}</div>
+          <div style="font-size:12px;color:var(--faint);font-family:ui-monospace,monospace">${where}</div>
+          ${reasons}</div>`;
+      }).join('');
+    } else {
+      body += '<p style="color:var(--low)">✓ No devices with unusual presence patterns.</p>';
+    }
+    showDetail('Device Timeline', susp.length ? `⚠️ ${susp.length} device(s) with unusual patterns` : 'All devices look steady', body);
+  } catch(e) { el.textContent = 'No timeline data yet'; showDetail('Device Timeline', 'No data', '<p style="color:var(--muted)">Nothing recorded yet.</p>'); }
+}
+
+function showDetail(title, sub, html) {
+  $('detailTitle').textContent = title;
+  $('detailSub').textContent = sub || '';
+  $('detailBody').innerHTML = html;
+  $('detailModal').classList.remove('hidden');
 }
 
 async function runAudit() {
   const el = $('auditStatus');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   el.textContent = 'Auditing…';
   try {
-    // Get IPs from last scan results: any flagged device, or anything with open ports
+    // Only audit devices that look camera-like (camera ports), so it stays fast
     const status = await api('/api/status');
     const devs = status.job?.results?.devices || [];
+    const CAM_PORTS = ['554','8000','8080','80','37777','34567'];
     const targets = [...new Set(devs
-      .filter(d => ['CRITICAL','HIGH','MODERATE'].includes(d.risk) || d.open_ports)
+      .filter(d => ['CRITICAL','HIGH','MODERATE'].includes(d.risk) ||
+                   (d.open_ports && String(d.open_ports).split(/[,\s]+/).some(p => CAM_PORTS.includes(p))))
       .map(d => d.ip)
       .filter(ip => ip && ip.includes('.')))];
-    if (!targets.length) { el.textContent = 'No devices with open ports to audit'; return; }
+    if (!targets.length) {
+      el.textContent = 'No camera-like devices to audit';
+      showDetail('Credential Audit', 'Nothing to test',
+        '<p style="color:var(--muted)">No devices with camera-style open ports were found in the last scan, so there is nothing to test for default passwords.</p>');
+      return;
+    }
+    el.textContent = `Testing ${targets.length} device(s)…`;
     const r = await fetch(`/api/onvif-audit?t=${T}`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({targets})
     }).then(r => r.json());
-    if (r.results?.length) {
-      el.innerHTML = `⚠️ ${r.results.length} camera(s) with default credentials!`;
-      el.style.color = 'var(--critical)';
-    } else {
-      el.textContent = `Tested ${targets.length} device(s) — all secured`;
-    }
+    const hits = r.results || [];
+    el.innerHTML = hits.length ? `⚠️ ${hits.length} with default login!` : `✓ Tested ${targets.length} — all secured`;
+    el.style.color = hits.length ? 'var(--critical)' : 'var(--low)';
+    let body = `<p style="color:var(--muted);margin-bottom:12px">Tested ${targets.length} camera-like device(s):</p>`;
+    body += targets.map(ip => {
+      const hit = hits.find(h => h.ip === ip);
+      if (hit) return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-color:rgba(255,77,79,.4)">
+        <div style="font-weight:600;color:var(--critical)">⚠️ ${esc(ip)} — default password!</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(hit.brand || hit.device || 'camera')} · login “${esc(hit.username || 'admin')}” works. Change its password.</div></div>`;
+      return `<div class="card" style="padding:10px 14px;margin-bottom:6px">
+        <span style="color:var(--low)">✓</span> <span style="font-family:ui-monospace,monospace;font-size:13px">${esc(ip)}</span>
+        <span style="color:var(--muted);font-size:13px">— no default login</span></div>`;
+    }).join('');
+    showDetail('Credential Audit', hits.length ? `⚠️ ${hits.length} camera(s) with default credentials` : 'All tested devices are secured', body);
   } catch(e) { el.textContent = 'Error: ' + e.message; }
 }
 </script>
