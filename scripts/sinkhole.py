@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import re
 import shutil
 import sys
 import time
@@ -146,8 +147,13 @@ def enable(extra_domains: list[str] | None = None) -> int:
         print("  Sinkhole is already active. Use --disable first to update.")
         return 0
 
-    # Deduplicate
-    all_domains = sorted(set(SINKHOLE_DOMAINS + (extra_domains or [])))
+    # Deduplicate, and keep only valid hostnames. SINKHOLE_DOMAINS pulls in
+    # spydevices.P2P_DOMAINS, which are regex patterns (e.g. r"\.tutk\.com$"):
+    # writing those to /etc/hosts makes systemd-resolved log a parse error that
+    # the traffic detector then misreads as a camera. Drop anything that isn't
+    # a plain hostname.
+    valid_host = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", re.IGNORECASE)
+    all_domains = sorted({d for d in set(SINKHOLE_DOMAINS + (extra_domains or [])) if valid_host.match(d)})
 
     # Backup
     content = _read_hosts()

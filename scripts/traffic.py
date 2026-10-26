@@ -69,17 +69,21 @@ def check_dns_cache(gateway: str) -> list[TrafficAnomaly]:
     out = _run(["resolvectl", "statistics"], timeout=5)
     out2 = _run(["journalctl", "-u", "systemd-resolved", "-n", "500",
                  "--no-pager", "-q"], timeout=10)
-    for domain_re in spydevices.P2P_DOMAINS:
-        pattern = domain_re.replace(r"\.", ".").strip("$^")
-        for line in out2.splitlines():
-            if re.search(pattern, line, re.IGNORECASE):
-                m = re.search(r"(\S+\.\S+)", line)
-                if m:
-                    anomalies.append(TrafficAnomaly(
-                        ip="", mac="", anomaly_type="p2p_relay",
-                        detail=f"DNS query to P2P camera relay: {m.group(1)}",
-                        destinations=[m.group(1)],
-                    ))
+    for line in out2.splitlines():
+        # Skip systemd-resolved's own parse errors (e.g. an invalid /etc/hosts
+        # entry) — those are log noise, not DNS queries, and would false-positive.
+        if "/etc/hosts" in line or "not valid" in line or "ignoring" in line:
+            continue
+        # Pull a real hostname out of the line: letters/digits/dots/hyphens only,
+        # so regex-looking text like ".tutk.com$" can never match.
+        for host in re.findall(r"\b([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\b", line, re.IGNORECASE):
+            if spydevices.P2P_DOMAIN_RE.search(host):
+                anomalies.append(TrafficAnomaly(
+                    ip="", mac="", anomaly_type="p2p_relay",
+                    detail=f"DNS query to P2P camera relay: {host}",
+                    destinations=[host],
+                ))
+                break
     return anomalies
 
 
