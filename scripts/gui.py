@@ -470,7 +470,7 @@ def make_handler(app: App):
                     for ip in targets[:10]:
                         results.extend(onvif_mod.audit_target(ip))
                     self._json({"results": [{"ip": r.ip, "port": r.port, "protocol": r.protocol,
-                                             "username": r.username, "brand": r.brand_hint,
+                                             "username": r.username, "password": r.password, "brand": r.brand_hint,
                                              "device": r.device_info} for r in results]})
             elif url.path == "/api/trust":
                 mac = str(data.get("mac", ""))

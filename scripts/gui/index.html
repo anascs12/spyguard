@@ -635,9 +635,14 @@ async function runAudit() {
     let body = `<p style="color:var(--muted);margin-bottom:12px">Tested ${targets.length} camera-like device(s):</p>`;
     body += targets.map(ip => {
       const hit = hits.find(h => h.ip === ip);
-      if (hit) return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-color:rgba(255,77,79,.4)">
-        <div style="font-weight:600;color:var(--critical)">⚠️ ${esc(ip)} — default password!</div>
-        <div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(hit.brand || hit.device || 'camera')} · login “${esc(hit.username || 'admin')}” works. Change its password.</div></div>`;
+      if (hit) {
+        const pw = hit.password === '(empty)' ? 'no password' : 'a known default password';
+        return `<div class="card" style="padding:12px 14px;margin-bottom:8px;border-color:rgba(255,77,79,.4)">
+        <div style="font-weight:600;color:var(--critical)">⚠️ ${esc(ip)} — insecure login</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:3px">${esc(hit.brand || hit.device || 'Camera')}${hit.protocol ? ' · ' + esc(hit.protocol) : ''}${hit.port ? ':' + esc(String(hit.port)) : ''}</div>
+        <div style="font-size:13px;margin-top:4px">Username <b>“${esc(hit.username || 'admin')}”</b> with ${pw} is accepted.</div>
+        <div style="font-size:13px;color:var(--high);margin-top:4px">→ If it’s yours: change the password now. If it’s a rental: don’t touch it — photograph it and report it to the host/platform.</div></div>`;
+      }
       return `<div class="card" style="padding:10px 14px;margin-bottom:6px">
         <span style="color:var(--low)">✓</span> <span style="font-family:ui-monospace,monospace;font-size:13px">${esc(ip)}</span>
         <span style="color:var(--muted);font-size:13px">— no default login</span></div>`;
