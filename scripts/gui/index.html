@@ -343,14 +343,14 @@ ol.check li { margin: 6px 0; }
     const m = Math.floor(job.elapsed / 60), sec = job.elapsed % 60;
     $('elapsed').textContent = `${m ? m + ' min ' : ''}${sec} s · Please keep this window open`;
     const hints = [
-      ‘Checking this computer’s WiFi connection…’,
-      ‘Looking for every device connected to this WiFi…’,
-      ‘Asking each device what it is…’,
-      ‘Checking WiFi networks and Bluetooth devices around you…’,
-      ‘Taking a closer look at anything that looks like a camera…’,
-      ‘Listening to the airwaves for cameras on other networks. This takes about a minute…’,
-      ‘Watching for devices secretly streaming video to the cloud…’,
-      ‘Putting your results together…’,
+      'Checking this computer’s WiFi connection…',
+      'Looking for every device connected to this WiFi…',
+      'Asking each device what it is…',
+      'Checking WiFi networks and Bluetooth devices around you…',
+      'Taking a closer look at anything that looks like a camera…',
+      'Listening to the airwaves for cameras on other networks. This takes about a minute…',
+      'Watching for devices secretly streaming video to the cloud…',
+      'Putting your results together…',
     ];
     $('live').textContent = hints[job.step] || '';
     $('raw').textContent = job.message || '';

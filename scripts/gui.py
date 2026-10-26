@@ -257,6 +257,7 @@ class DemoJob:
         keys = ["risk", "ip", "mac", "manufacturer", "device_type", "open_ports", "source", "evidence", "recommendation"]
         self.results = {"devices": [dict(zip(keys, row)) for row in sample], "demo": True}
         self.report = ""
+        self.state = "done"
 
     def stop(self) -> None:
         pass
