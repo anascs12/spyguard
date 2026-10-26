@@ -292,6 +292,9 @@ ol.check li { margin: 6px 0; }
   const $ = id => document.getElementById(id);
   const show = id => ['home', 'progress', 'results'].forEach(s => $(s).classList.toggle('hidden', s !== id));
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // Advanced-tool buttons (DNS Sinkhole, Timeline, Credential Audit) call global
+  // onclick handlers defined after this IIFE; expose the helpers they need.
+  Object.assign(window, { $, T, api });
 
   const RISK = {
     CRITICAL: { label: 'Likely camera', color: 'var(--critical)' },
