@@ -24,6 +24,12 @@ except ImportError:
     sinkhole_mod = None  # type: ignore[assignment]
 
 
+def _js_pattern(compiled_re: "re.Pattern[str]") -> str:
+    """Strip Python-only inline flags like (?i) so the pattern is valid JS."""
+    import re as _re
+    return _re.sub(r"^\(\?[aiLmsux]+\)", "", compiled_re.pattern)
+
+
 def main() -> None:
     data = {
         "_generated_by": "scripts/export_signatures.py — do not edit by hand",
@@ -37,15 +43,15 @@ def main() -> None:
         "rtspPaths": detectors.RTSP_PATHS,
         "cameraKeywordsHigh": scan.CAMERA_KEYWORDS_HIGH,
         "cameraHeaders": scan.CAMERA_HEADERS,
-        "cameraTitle": scan.CAMERA_TITLE_RE.pattern,
-        "cameraMfrKeywords": scan.CAMERA_MFR_KEYWORDS.pattern,
-        "cameraHostname": scan.CAMERA_HOSTNAME_RE.pattern,
-        "cameraNameStrong": detectors.CAMERA_NAME_STRONG.pattern,
-        "cameraNameWeak": detectors.CAMERA_NAME_WEAK.pattern,
+        "cameraTitle": _js_pattern(scan.CAMERA_TITLE_RE),
+        "cameraMfrKeywords": _js_pattern(scan.CAMERA_MFR_KEYWORDS),
+        "cameraHostname": _js_pattern(scan.CAMERA_HOSTNAME_RE),
+        "cameraNameStrong": _js_pattern(detectors.CAMERA_NAME_STRONG),
+        "cameraNameWeak": _js_pattern(detectors.CAMERA_NAME_WEAK),
         "physicalChecklist": scan.PHYSICAL_CHECKLIST,
         "spyOuis": spydevices.SPY_OUIS,
-        "spyModelPattern": spydevices.SPY_MODEL_PATTERNS.pattern,
-        "spyHttpServers": spydevices.SPY_HTTP_SERVERS.pattern,
+        "spyModelPattern": _js_pattern(spydevices.SPY_MODEL_PATTERNS),
+        "spyHttpServers": _js_pattern(spydevices.SPY_HTTP_SERVERS),
         "p2pPorts": sorted(spydevices.P2P_PORTS),
         "spyPortCombos": [
             {"ports": sorted(combo), "desc": desc}

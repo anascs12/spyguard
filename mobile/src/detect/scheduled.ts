@@ -11,16 +11,21 @@ import { RISK_ORDER, type Finding } from './types';
 
 const TASK_NAME = 'spyguard-background-scan';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    priority: Notifications.AndroidNotificationPriority.HIGH,
-  }),
-});
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+    }),
+  });
+} catch {}
 
-TaskManager.defineTask(TASK_NAME, async () => {
+try {
+  TaskManager.defineTask(TASK_NAME, async () => {
   try {
     const { schedule } = getState();
     if (!schedule.enabled) return BackgroundFetch.BackgroundFetchResult.NoData;
@@ -87,7 +92,8 @@ TaskManager.defineTask(TASK_NAME, async () => {
   } catch {
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
-});
+  });
+} catch {}
 
 export async function enableScheduledScans(intervalMinutes: number): Promise<boolean> {
   const { status: existing } = await Notifications.getPermissionsAsync();

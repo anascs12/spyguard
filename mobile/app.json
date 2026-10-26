@@ -3,7 +3,7 @@
     "name": "Privacy Scanner",
     "slug": "privacy-scanner",
     "scheme": "privacyscanner",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -29,10 +29,11 @@
         "android.permission.NEARBY_WIFI_DEVICES",
         "android.permission.INTERNET",
         "android.permission.CAMERA",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES"
       ],
       "blockedPermissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -56,8 +57,24 @@
         }
       ],
       "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "SpyGuard needs the microphone to detect ultrasonic tracking beacons."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "SpyGuard needs photo access to import thermal camera images.",
+          "cameraPermission": false
+        }
+      ],
+      "expo-notifications",
+      "expo-background-fetch",
       "./plugins/withReleaseSigning",
-      "./plugins/withBluetoothScanForLocation"
+      "./plugins/withBluetoothScanForLocation",
+      "./plugins/withExtraProguardRules"
     ],
     "experiments": {
       "typedRoutes": true

@@ -14,6 +14,7 @@ export const sourceMeta: Record<Source, { icon: IconName; label: string }> = {
   wifi: { icon: 'wifi', label: 'Nearby WiFi' },
   ble: { icon: 'bluetooth', label: 'Bluetooth' },
   laptop: { icon: 'laptop', label: 'Laptop scan' },
+  ultrasound: { icon: 'microphone', label: 'Ultrasound' },
 };
 
 /** Sources whose signal strength a phone can track for the locator. */

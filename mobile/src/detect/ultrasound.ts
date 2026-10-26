@@ -1,5 +1,3 @@
-import { Audio } from 'expo-av';
-
 import type { Finding } from './types';
 
 const SAMPLE_RATE = 44100;
@@ -15,6 +13,8 @@ export interface UltrasoundResult {
   peakAmplitude: number | null;
   spectralPeaks: { hz: number; db: number }[];
 }
+
+const EMPTY: UltrasoundResult = { detected: false, peakFrequency: null, peakAmplitude: null, spectralPeaks: [] };
 
 function hannWindow(size: number): Float32Array {
   const w = new Float32Array(size);
@@ -95,67 +95,51 @@ function analyzeSpectrum(pcmData: Float32Array): UltrasoundResult {
 }
 
 export async function scanUltrasound(): Promise<UltrasoundResult> {
-  const { status } = await Audio.requestPermissionsAsync();
-  if (status !== 'granted') {
-    return { detected: false, peakFrequency: null, peakAmplitude: null, spectralPeaks: [] };
-  }
+  try {
+    const audio = require('expo-audio');
+    const { granted } = await audio.requestRecordingPermissionsAsync();
+    if (!granted) return EMPTY;
 
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
-    playsInSilentModeIOS: true,
-  });
+    await audio.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
-  const recording = new Audio.Recording();
-  await recording.prepareToRecordAsync({
-    android: {
+    const nativeMod = require('expo-audio/build/AudioModule').default;
+    const recorder = new nativeMod.AudioRecorder({
       extension: '.wav',
-      outputFormat: Audio.AndroidOutputFormat.DEFAULT,
-      audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
       sampleRate: SAMPLE_RATE,
       numberOfChannels: 1,
       bitRate: 256000,
-    },
-    ios: {
-      extension: '.wav',
-      outputFormat: Audio.IOSOutputFormat.LINEARPCM,
-      audioQuality: Audio.IOSAudioQuality.MAX,
-      sampleRate: SAMPLE_RATE,
-      numberOfChannels: 1,
-      bitRate: 256000,
-      linearPCMBitDepth: 16,
-      linearPCMIsBigEndian: false,
-      linearPCMIsFloat: false,
-    },
-    web: { mimeType: 'audio/wav', bitsPerSecond: 256000 },
-  });
+      android: { outputFormat: 'default', audioEncoder: 'default' },
+      ios: { outputFormat: 1819304813, audioQuality: 127, linearPCMBitDepth: 16, linearPCMIsBigEndian: false, linearPCMIsFloat: false },
+      web: { mimeType: 'audio/wav', bitsPerSecond: 256000 },
+    });
 
-  await recording.startAsync();
-  await new Promise((r) => setTimeout(r, RECORD_DURATION_MS));
-  await recording.stopAndUnloadAsync();
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+    await new Promise((r) => setTimeout(r, RECORD_DURATION_MS));
+    await recorder.stop();
 
-  const uri = recording.getURI();
-  if (!uri) {
-    return { detected: false, peakFrequency: null, peakAmplitude: null, spectralPeaks: [] };
+    const uri = recorder.uri;
+    if (!uri) return EMPTY;
+
+    const response = await fetch(uri);
+    const buffer = await response.arrayBuffer();
+    const view = new DataView(buffer);
+
+    const pcmStart = 44;
+    const sampleCount = (buffer.byteLength - pcmStart) / 2;
+    const pcm = new Float32Array(sampleCount);
+
+    for (let i = 0; i < sampleCount; i++) {
+      const sample = view.getInt16(pcmStart + i * 2, true);
+      pcm[i] = sample / 32768;
+    }
+
+    await audio.setAudioModeAsync({ allowsRecording: false });
+
+    return analyzeSpectrum(pcm);
+  } catch {
+    return EMPTY;
   }
-
-  // Read WAV file and extract PCM samples
-  const response = await fetch(uri);
-  const buffer = await response.arrayBuffer();
-  const view = new DataView(buffer);
-
-  // Skip WAV header (44 bytes for standard PCM WAV)
-  const pcmStart = 44;
-  const sampleCount = (buffer.byteLength - pcmStart) / 2;
-  const pcm = new Float32Array(sampleCount);
-
-  for (let i = 0; i < sampleCount; i++) {
-    const sample = view.getInt16(pcmStart + i * 2, true);
-    pcm[i] = sample / 32768;
-  }
-
-  await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-
-  return analyzeSpectrum(pcm);
 }
 
 export function classifyUltrasound(result: UltrasoundResult): Finding[] {

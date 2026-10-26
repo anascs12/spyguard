@@ -277,8 +277,8 @@
   "000D81": "Vstarcam",
   "1C1BBD": "Vstarcam"
  },
- "spyModelPattern": "(?i)V380|V380\\s*Pro|XMEye|NETSurveillance|XM\\s*camera|iCSee|Eye4|EseeCloud|CamHi|HiP2P|HDWIFICAM|HDWifiCamPro|Wansview|YI\\s*Home|YI\\s*Dome|Vstarcam|VstarCam|Sricam|SriHome|ESCAM|LeFun|TENVIS|Anbiux|Hiseeu|JOOAN|ZOSI|SANNCE|Xiaovv|Wyzecam|WyzeCam|Reolink\\s*Go|ESP32.?CAM|JAWS/|Boa/0|GoAhead.Webs|GoAhead|uc-httpd|DNVRS-Webs|App-webs|mini\\s*camera|spy\\s*camera|hidden\\s*camera|pinhole|button\\s*cam|nanny\\s*cam|clock\\s*cam|charger\\s*cam|smoke\\s*detector\\s*cam|pen\\s*cam|glasses\\s*cam|teddy\\s*cam",
- "spyHttpServers": "(?i)^(?:GoAhead-Webs|JAWS/1|Boa/0|uc-httpd|DNVRS-Webs|App-webs|mini_httpd/1)",
+ "spyModelPattern": "V380|V380\\s*Pro|XMEye|NETSurveillance|XM\\s*camera|iCSee|Eye4|EseeCloud|CamHi|HiP2P|HDWIFICAM|HDWifiCamPro|Wansview|YI\\s*Home|YI\\s*Dome|Vstarcam|VstarCam|Sricam|SriHome|ESCAM|LeFun|TENVIS|Anbiux|Hiseeu|JOOAN|ZOSI|SANNCE|Xiaovv|Wyzecam|WyzeCam|Reolink\\s*Go|ESP32.?CAM|JAWS/|Boa/0|GoAhead.Webs|GoAhead|uc-httpd|DNVRS-Webs|App-webs|mini\\s*camera|spy\\s*camera|hidden\\s*camera|pinhole|button\\s*cam|nanny\\s*cam|clock\\s*cam|charger\\s*cam|smoke\\s*detector\\s*cam|pen\\s*cam|glasses\\s*cam|teddy\\s*cam",
+ "spyHttpServers": "^(?:GoAhead-Webs|JAWS/1|Boa/0|uc-httpd|DNVRS-Webs|App-webs|mini_httpd/1)",
  "p2pPorts": [
   6789,
   8899,
