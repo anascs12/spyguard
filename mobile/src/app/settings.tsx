@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,7 +42,28 @@ export default function SettingsScreen() {
   const networks = Object.keys(known).length;
 
   return (
-    <Screen title="Settings">
+    <Screen title="More">
+      <SectionTitle>Tools</SectionTitle>
+      <Card style={{ paddingVertical: space.sm }}>
+        <Pressable style={styles.toolRow} onPress={() => router.navigate('/heatmap')}>
+          <Icon name="access-point" size={22} color={c.accent} />
+          <View style={{ flex: 1 }}>
+            <Text style={[type.body, { color: c.text, fontWeight: '600' }]}>WiFi Heatmap</Text>
+            <Text style={[type.small, { color: c.textMuted }]}>Map signal strength around the room</Text>
+          </View>
+          <Icon name="chevron-right" size={20} color={c.textFaint} />
+        </Pressable>
+        <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }} />
+        <Pressable style={styles.toolRow} onPress={() => router.navigate('/thermal')}>
+          <Icon name="thermometer" size={22} color={c.accent} />
+          <View style={{ flex: 1 }}>
+            <Text style={[type.body, { color: c.text, fontWeight: '600' }]}>Thermal Check</Text>
+            <Text style={[type.small, { color: c.textMuted }]}>Find hidden electronics by heat</Text>
+          </View>
+          <Icon name="chevron-right" size={20} color={c.textFaint} />
+        </Pressable>
+      </Card>
+
       <SectionTitle>Laptop scanner</SectionTitle>
       <Card>
         {laptop ? (
@@ -377,4 +399,5 @@ const styles = StyleSheet.create({
     borderWidth: 3, borderColor: '#fff', borderRadius: 24,
   },
   qrClose: { position: 'absolute', right: space.lg },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md },
 });

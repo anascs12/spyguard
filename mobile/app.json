@@ -67,14 +67,15 @@
         "expo-image-picker",
         {
           "photosPermission": "SpyGuard needs photo access to import thermal camera images.",
-          "cameraPermission": false
+          "cameraPermission": "SpyGuard needs the camera for lens detection."
         }
       ],
       "expo-notifications",
       "expo-background-fetch",
       "./plugins/withReleaseSigning",
       "./plugins/withBluetoothScanForLocation",
-      "./plugins/withExtraProguardRules"
+      "./plugins/withExtraProguardRules",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
