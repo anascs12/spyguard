@@ -30,7 +30,15 @@ interface LaptopDevice {
   recommendation: string;
   source?: string;
   new?: boolean;
+  preview?: string;
+  cred_default?: boolean;
+  cred_user?: string;
+  cred_password?: string;
+  cred_note?: string;
 }
+
+/** Only the exact shape scan.py writes is passed on to an <Image>. */
+const PREVIEW_URI = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
 
 /** Pull results from the laptop scanner over the local network. */
 export async function fetchLaptopResults(link: LaptopLink): Promise<{ findings: Finding[]; timestamp: string }> {
@@ -58,6 +66,10 @@ export async function fetchLaptopResults(link: LaptopLink): Promise<{ findings: 
       recommendation: d.recommendation,
       ports: d.open_ports ? d.open_ports.split(',').map(Number) : undefined,
       isNew: d.new,
+      preview: d.preview && PREVIEW_URI.test(d.preview) ? d.preview : undefined,
+      insecurePassword: d.cred_default
+        ? { user: d.cred_user || 'admin', empty: d.cred_password === '(empty)', note: d.cred_note || '' }
+        : undefined,
     })),
   };
 }

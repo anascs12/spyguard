@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 privacy-scan-results
 .venv/
+
+# Built Android packages (released via GitHub, not committed)
+*.apk

@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Finding, Source } from '@/detect/types';
@@ -80,6 +80,29 @@ export function FindingSheet({ finding, onClose }: { finding: Finding | null; on
           <Text style={[type.title, { color: c.text, fontSize: 24 }]}>{finding.title}</Text>
           <Text selectable style={[type.mono, { color: c.textMuted, marginTop: 4 }]}>{finding.address}</Text>
 
+          {finding.insecurePassword && (
+            <View style={{ marginTop: space.lg }}>
+              <Text style={[type.caption, { color: riskColors.CRITICAL, marginBottom: 4 }]}>DEFAULT PASSWORD</Text>
+              <Text style={[type.body, { color: c.text, lineHeight: 21 }]}>
+                Login “{finding.insecurePassword.user}” with {finding.insecurePassword.empty ? 'no password' : 'a factory-default password'} is accepted
+                {finding.insecurePassword.note ? ` (${finding.insecurePassword.note})` : ''}, so anyone nearby could watch it. SpyGuard only tested the login — it never views the video.
+              </Text>
+            </View>
+          )}
+          {finding.preview && (
+            <View style={{ marginTop: space.lg }}>
+              <Text style={[type.caption, { color: c.textFaint, marginBottom: 4 }]}>WHAT THIS CAMERA SEES</Text>
+              <Image
+                source={{ uri: finding.preview }}
+                resizeMode="contain"
+                accessibilityLabel="Frame from this camera’s open video stream"
+                style={[styles.preview, { borderColor: c.border }]}
+              />
+              <Text style={[type.small, { color: c.textMuted, marginTop: 4 }]}>
+                One frame from its video stream, which has no password. Match it to the room to find where the camera is.
+              </Text>
+            </View>
+          )}
           <Detail label="Why it was flagged" body={finding.evidence} />
           <Detail label="What to do" body={finding.recommendation} color={riskColors[finding.risk]} />
           {finding.manufacturer !== 'Unknown' && <Detail label="Identified as" body={finding.manufacturer} />}
@@ -119,5 +142,6 @@ const styles = StyleSheet.create({
   rowTitle: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '85%', borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  preview: { width: '100%', aspectRatio: 16 / 9, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#000' },
   grabber: { width: 36, height: 5, borderRadius: 3, alignSelf: 'center', marginTop: space.sm },
 });

@@ -5,4 +5,4 @@ requests>=2.31.0
 bleak>=0.22.0          # Bluetooth LE trackers / BLE cameras
 scapy>=2.5.0           # Over-the-air (monitor mode) capture; tcpdump is the fallback
 # Offline camera detection (optional)
-opencv-python>=4.8.0   # --optical lens-glint / IR LED finder
+opencv-python>=4.8.0   # --optical lens-glint / IR LED finder; camera's-eye view when ffmpeg is missing

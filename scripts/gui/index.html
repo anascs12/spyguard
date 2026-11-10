@@ -101,6 +101,8 @@ header .spacer { flex: 1; }
 .finding .where { color: var(--muted); font-size: 13px; margin: 2px 0 10px; font-family: ui-monospace, monospace; }
 .finding .label { font-size: 11px; font-weight: 700; letter-spacing: .6px; color: var(--faint); text-transform: uppercase; }
 .finding .text { margin: 2px 0 10px; }
+.finding .view { display: block; max-width: min(100%, 480px); border-radius: 10px; border: 1px solid var(--border); margin: 6px 0; }
+.finding .note { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 .finding .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 details.safe summary { cursor: pointer; color: var(--muted); padding: 6px 4px; list-style: none; }
 details.safe summary::before { content: "▸ "; }
@@ -387,6 +389,22 @@ ol.check li { margin: 6px 0; }
     .replace(/^([A-Z][A-Z .,'’-]{5,}[.!])/, m => m[0] + m.slice(1).toLowerCase())
     .replace(/^(.)/, c => c.toUpperCase());
 
+  // Default-password audit hit: tested, not streamed (scan.py never views the video)
+  function defaultPassword(d) {
+    if (!d.cred_default) return '';
+    const pw = d.cred_password === '(empty)' ? 'no password' : 'a factory-default password';
+    return `<div class="label" style="color:var(--critical)">Default password</div>
+      <div class="text">Login “${esc(d.cred_user || 'admin')}” with ${pw} is accepted${d.cred_note ? ' (' + esc(d.cred_note) + ')' : ''}, so anyone nearby could watch it. SpyGuard only tested the login — it never views the video.</div>`;
+  }
+
+  // One frame from a stream with no password (scan.py never logs in to get one)
+  function cameraView(d) {
+    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(d.preview || '')) return '';
+    return `<div class="label">What this camera sees</div>
+      <img class="view" src="${d.preview}" alt="Frame from this camera’s open video stream">
+      <div class="note">One frame from its video stream, which has no password. Match it to the room to find where the camera is.${d.preview_file ? ' Full-size copy saved with your results.' : ''}</div>`;
+  }
+
   function findingCard(d) {
     const r = RISK[d.risk] || RISK.INFO;
     const src = SOURCE[d.source] || SOURCE.lan;
@@ -403,6 +421,8 @@ ol.check li { margin: 6px 0; }
         <div class="where">${esc(where)}${d.manufacturer && d.manufacturer !== 'Unknown' ? ' · ' + esc(d.manufacturer) : ''}</div>
         <div class="label">Why</div><div class="text">${esc(humanize(d.evidence))}</div>
         <div class="label">What to do</div><div class="text">${esc(humanize(d.recommendation))}</div>
+        ${defaultPassword(d)}
+        ${cameraView(d)}
         <div class="actions">
           ${target ? `<button class="btn small primary" data-find="${esc(target)}" data-title="${esc(d.device_type)}">🎯 Find it</button>` : ''}
           ${d.mac ? `<button class="btn small" data-trust="${esc(d.mac)}" data-on="${isTrusted ? '0' : '1'}">${isTrusted ? 'Not mine' : '✓ This is mine'}</button>` : ''}

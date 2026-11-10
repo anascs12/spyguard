@@ -3,7 +3,7 @@
     "name": "Privacy Scanner",
     "slug": "privacy-scanner",
     "scheme": "privacyscanner",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -39,7 +39,8 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.ACTIVITY_RECOGNITION"
       ],
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 2
     },
     "plugins": [
       "expo-router",

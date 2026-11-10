@@ -20,6 +20,10 @@ export interface Finding {
   rssi?: number | null;
   isNew?: boolean;
   trusted?: boolean;
+  /** JPEG data URI: one frame from a stream that has no password (laptop scanner only) */
+  preview?: string;
+  /** Camera accepts a factory-default login (laptop credential audit; report-only) */
+  insecurePassword?: { user: string; empty: boolean; note: string };
 }
 
 export type PhaseStatus = 'idle' | 'running' | 'done' | 'skipped' | 'error';

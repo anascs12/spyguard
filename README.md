@@ -42,6 +42,7 @@ your phone, and allow "install unknown apps" when asked. Requires Android 7.0+ o
 |---|:---:|:---:|
 | Cameras on your WiFi (RTSP video, camera web pages, camera ports) | ✅ | ✅ (+ manufacturer by MAC) |
 | **Known spy-camera database** (V380, XMEye, ESP32-CAM, 100+ models) | ✅ | ✅ |
+| **Camera's-eye view** (one frame from a camera that streams with no password, to see where it is) | via laptop link | ✅ |
 | Camera setup hotspots and camera-brand networks nearby | ✅ | ✅ |
 | AirTag / Find My, Google Find My, Tile, SmartTag, Chipolo trackers | ✅ | ✅ |
 | **Network traffic anomaly detection** (P2P relay, sustained uploads) | — | ✅ |
@@ -56,13 +57,14 @@ your phone, and allow "install unknown apps" when asked. Requires Android 7.0+ o
 | **Thermal anomaly hints** (import FLIR/Seek images, mark hot spots) | ✅ Thermal tab | — |
 | **Device timeline** (track presence patterns, flag night-only devices) | ✅ Settings | ✅ `timeline.py` |
 | **DNS sinkhole** (block camera cloud uploads via /etc/hosts) | — | ✅ `sinkhole.py` |
-| **ONVIF credential audit** (test for factory-default passwords) | — | ✅ `onvif_audit.py` |
+| **ONVIF credential audit** (test for factory-default passwords) | via laptop link | ✅ `onvif_audit.py`, `--credential-audit` |
 | **Zigbee/Z-Wave sniffer** (CC2531 dongle, smart-home cameras) | — | ✅ `zigbee.py` |
 | Distance estimation for BLE devices | ✅ | — |
 | Evidence pack, watch mode, trusted devices | trusted devices | ✅ |
 
 Every check is **detection-only**: SpyGuard never logs into devices, joins other people's networks
-or decrypts traffic. The ONVIF audit tests known factory-default credentials only.
+or decrypts traffic. The ONVIF audit tests known factory-default credentials only. The camera's-eye
+view is only taken from streams that have no password at all; a locked camera is reported, never opened.
 
 ## Android app
 
@@ -205,6 +207,21 @@ sudo python3 scripts/scan.py --survey mon:AA:BB:CC:DD:EE:FF
 
 Signal strength indoors is noisy: expect the estimate to be within about 1-3 m, then search by hand.
 
+### Seeing what an open camera sees
+
+Some cameras send their video to anyone on the network, with no password. When the scan finds one,
+it saves **one frame** of that video. Stand where the picture was taken from and you have found the
+camera, usually faster than following the signal meter.
+
+- The picture appears on the device's card in the laptop app, the HTML report and the linked phone app.
+- The full-size frame is saved next to the report (`privacy-scan-<time>-camera-view-<ip>.jpg`) and goes
+  into the evidence pack with its own SHA-256 hash.
+- A camera whose video is **password-protected gets no picture**. SpyGuard does not guess or try
+  passwords: it says the stream is locked and you find the device by signal (`--locate`) instead.
+- The frame can show you and the room. It stays on your computer; `--no-preview` turns this off.
+
+Needs `ffmpeg` (or `opencv-python`).
+
 ### Cameras that are offline or powered off
 
 These send no radio signal, so the optical finder looks for them instead. A camera lens reflects
@@ -270,11 +287,14 @@ sudo python3 scripts/sinkhole.py --status           # show current state
 ### ONVIF credential audit
 
 Test discovered cameras for factory-default passwords. Detection-only: reports which cameras are
-unsecured, never streams or changes any settings.
+unsecured, **never streams or changes any settings** — a weak or default password is not a way in,
+it is a privacy finding. A camera that accepts a default login is surfaced as a CRITICAL
+"unsecured camera" on its card, because anyone nearby could watch it.
 
 ```bash
 python3 scripts/onvif_audit.py 192.168.1.100        # single IP
 python3 scripts/onvif_audit.py --from-scan results.json  # audit all HIGH+ from a scan
+sudo python3 scripts/scan.py --credential-audit      # test camera-like devices during a scan
 ```
 
 ### Zigbee / Z-Wave sniffer

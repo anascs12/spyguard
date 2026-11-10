@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import baseline as baseline_mod  # noqa: E402
 import detectors  # noqa: E402
 import evidence  # noqa: E402
+import preview as preview_mod  # noqa: E402
 import spydevices  # noqa: E402
 import traffic as traffic_mod  # noqa: E402
 
@@ -625,6 +626,8 @@ class ScanContext:
         self.radio_results: list[dict] = []   # Nearby WiFi / BLE / monitor findings
         self.onvif: dict[str, dict] = {}      # ip -> ONVIF device info
         self.rtsp: dict[str, dict] = {}       # ip -> RTSP probe result
+        self.previews: dict[str, dict] = {}   # ip -> still from an open (no-password) stream
+        self.credentials: dict[str, dict] = {} # ip -> default-credential audit hit (report-only)
         self.counts = {"CRITICAL": 0, "HIGH": 0, "MODERATE": 0, "LOW": 0, "INFO": 0}
 
         self.baseline = baseline_mod.Baseline(self.report_dir)
@@ -1309,6 +1312,26 @@ def phase5c_traffic(ctx: ScanContext) -> None:
 # Phase 5: Deep Inspection (HTTP / RTSP)
 # ===========================================================================
 
+def _capture_preview(ctx: ScanContext, ip: str, port: str, path: str) -> None:
+    """Save one still from a stream that is open to everyone on the network.
+
+    Only ever called for streams probe_rtsp() found open. Password-protected
+    streams are never touched: no credentials are tried, here or anywhere.
+    """
+    if ctx.args.no_preview or ip in ctx.previews:
+        return
+    if not preview_mod.available():
+        log_dim("No camera view saved (install ffmpeg or: pip install opencv-python)")
+        return
+    log_info(f"Saving one frame of what {ip} can see (the stream has no password)...")
+    shot = preview_mod.capture(ip, port, path, ctx.scan_dir)
+    if not shot:
+        log_warn(f"Could not read a frame from {ip}:{port}")
+        return
+    ctx.previews[ip] = shot
+    log_critical(f"Camera view of {ip} saved: match it to the room to find where the camera is")
+
+
 def _http_inspect(ip: str, port: str) -> list[dict]:
     """Inspect an HTTP endpoint for camera indicators. Returns findings."""
     findings: list[dict] = []
@@ -1431,6 +1454,7 @@ def phase5_deep_inspection(ctx: ScanContext) -> None:
             if res["open_stream"]:
                 detail += f"; video stream open without password at {res['open_stream']}"
                 ctx.deep_results.append({"ip": ip, "port": port, "type": "RTSP_OPEN_STREAM", "detail": detail})
+                _capture_preview(ctx, ip, port, res["open_stream"])
             elif res["auth_required"]:
                 detail += "; password-protected stream"
             ctx.deep_results.append({"ip": ip, "port": port, "type": "RTSP_CONFIRMED", "detail": detail})
@@ -1447,6 +1471,62 @@ def phase5_deep_inspection(ctx: ScanContext) -> None:
             log_critical(f"XMEye NVR port on {ip}:{port}")
 
     log_ok(f"Deep inspection complete: {len(ctx.deep_results)} findings")
+
+
+# ===========================================================================
+# Phase 5d: Default-Credential Audit (report-only, never streams)
+# ===========================================================================
+
+def phase5d_credentials(ctx: ScanContext) -> None:
+    """Flag cameras still using a factory-default password.
+
+    Tests only devices that already look like cameras, and only to learn
+    whether a default login is accepted. It never streams, records or
+    changes anything — the same boundary as onvif_audit.py. Off unless
+    --credential-audit is given, because it sends credentials to a device.
+    """
+    if not ctx.args.credential_audit or onvif_mod is None:
+        return
+    log_phase("5d", "Default-Credential Audit (report-only)")
+    if not shutil.which("curl"):
+        log_warn("Credential audit needs curl — skipped")
+        return
+
+    # Only devices with camera evidence so far: an open camera port or a
+    # camera/RTSP finding. Never every host on the network.
+    ip_ports: dict[str, set[str]] = {}
+    for pr in ctx.port_results:
+        ip_ports.setdefault(pr["ip"], set()).add(pr["port"])
+    camera_deep = {d["ip"] for d in ctx.deep_results
+                   if d["type"] in ("RTSP_CONFIRMED", "RTSP_OPEN_STREAM", "CAMERA_WEBUI",
+                                    "CAMERA_HEADER", "CAMERA_TITLE", "DAHUA_PORT", "XMEYE_PORT")}
+    targets = sorted({ip for ip, ports in ip_ports.items()
+                      if (ports & (RTSP_PORTS | VENDOR_PORTS | WEAK_VENDOR_PORTS | HTTP_PORTS))} | camera_deep)
+    if not targets:
+        log_info("No camera-like devices to test")
+        return
+
+    log_info(f"Testing {len(targets)} camera-like device(s) for factory-default passwords...")
+    for ip in targets:
+        ports = [int(p) for p in sorted(ip_ports.get(ip, set())) if p.isdigit()] or None
+        try:
+            hits = onvif_mod.audit_target(ip, ports)
+        except Exception as exc:
+            log_dim(f"{ip}: audit failed ({exc})")
+            continue
+        hit = next((h for h in hits if h.accessible), None)
+        if not hit:
+            log_ok(f"{ip}: no default login accepted")
+            continue
+        ctx.credentials[ip] = {
+            "username": hit.username, "password": hit.password, "protocol": hit.protocol,
+            "port": hit.port, "brand": hit.brand_hint, "device": hit.device_info,
+        }
+        ctx.deep_results.append({"ip": ip, "port": str(hit.port), "type": "DEFAULT_CRED",
+                                 "detail": f"{hit.protocol} login '{hit.username}' / "
+                                           f"{hit.password} accepted ({hit.brand_hint})"})
+        log_critical(f"UNSECURED CAMERA {ip}: default login '{hit.username}' accepted "
+                     f"— anyone nearby could watch it")
 
 
 # ===========================================================================
@@ -1494,6 +1574,7 @@ def phase6_classify(ctx: ScanContext) -> None:
         has_camera_header = "CAMERA_HEADER" in deep_types
         has_rtsp_confirmed = "RTSP_CONFIRMED" in deep_types
         has_open_stream = "RTSP_OPEN_STREAM" in deep_types
+        has_default_cred = "DEFAULT_CRED" in deep_types
         onvif = ctx.onvif.get(ip)
         has_mdns_camera = bool(svc_types & {
             "_rtsp._tcp", "_camera._tcp", "_nvr._tcp", "_onvif._tcp",
@@ -1690,14 +1771,40 @@ def phase6_classify(ctx: ScanContext) -> None:
             evidence = f"Identified manufacturer: {manufacturer}"
             recommendation = "Known device type, no camera indicators"
 
+        shot = ctx.previews.get(ip)
+        if shot:
+            recommendation += (" The picture shows what this camera sees right now: stand where "
+                               "the view was taken from to find it.")
+        elif ctx.rtsp.get(ip, {}).get("auth_required"):
+            recommendation += (" Its video is password-protected, so there is no camera view: "
+                               "SpyGuard never tries to log in. Find it by signal instead.")
+
+        cred = ctx.credentials.get(ip)
+        if cred:
+            risk = "CRITICAL"
+            pw = "no password" if cred["password"] == "(empty)" else "a factory-default password"
+            device_type = "Unsecured camera (default password)"
+            evidence = (f"Accepts a known default login ({cred['protocol']} '{cred['username']}' with {pw})"
+                        + (f" — {cred['brand']}" if cred["brand"] else "")
+                        + ". Anyone nearby could watch it, and it is almost certainly a camera.")
+            recommendation = ("If it's yours, change its password now. If it's a rental, don't touch it: "
+                              "photograph it and report it to the host or platform. " + recommendation)
+
         if risk in ("CRITICAL", "HIGH", "MODERATE") and mac:
             recommendation += f" Find it: --locate mon:{mac} or --survey mon:{mac}"
 
-        ctx.classifications.append({
+        entry = {
             "risk": risk, "ip": ip, "mac": mac, "manufacturer": manufacturer,
             "device_type": device_type, "open_ports": open_ports_str,
             "evidence": evidence, "recommendation": recommendation, "source": "lan",
-        })
+        }
+        if shot:
+            entry.update(preview=shot["data_uri"], preview_file=shot["file"],
+                         preview_time=shot["captured"], preview_sha256=shot["sha256"])
+        if cred:
+            entry.update(cred_default=True, cred_user=cred["username"], cred_password=cred["password"],
+                         cred_note=cred["brand"])
+        ctx.classifications.append(entry)
 
     ctx.classifications.extend(ctx.radio_results)
 
@@ -1957,6 +2064,8 @@ def parse_args() -> argparse.Namespace:
     radio.add_argument("--no-monitor", action="store_true", help="Skip over-the-air capture")
     radio.add_argument("--no-wifi-scan", action="store_true", help="Skip nearby access point scan")
     radio.add_argument("--no-ble", action="store_true", help="Skip Bluetooth LE scan")
+    parser.add_argument("--no-preview", action="store_true",
+                        help="Don't save a still from cameras that stream without a password")
 
     find = parser.add_argument_group("finding a device")
     find.add_argument("--locate", metavar="TARGET",
@@ -1972,6 +2081,9 @@ def parse_args() -> argparse.Namespace:
                        help="Mark your own device as trusted on every network (repeatable)")
     track.add_argument("--watch", type=float, default=0, metavar="MIN",
                        help="Keep scanning every MIN minutes and alert on new suspicious devices")
+    track.add_argument("--credential-audit", action="store_true",
+                       help="Test camera-like devices for factory-default passwords (report-only, "
+                            "never streams or changes anything). Sends known default logins")
     track.add_argument("--evidence", action="store_true",
                        help="Save a zip of reports + raw data with a SHA-256 manifest")
     track.add_argument("--serve", type=int, nargs="?", const=8765, default=0, metavar="PORT",
@@ -2052,6 +2164,10 @@ def main() -> None:
 
     json_output = ctx.report_dir / f"privacy-scan-{ctx.timestamp}.json"
     shutil.copy(os.path.join(ctx.scan_dir, "results.json"), json_output)
+    for shot in ctx.previews.values():
+        still = ctx.report_dir / f"privacy-scan-{ctx.timestamp}-{shot['file']}"
+        shutil.copy(os.path.join(ctx.scan_dir, shot["file"]), still)
+        log_ok(f"Camera view saved to: {still}")
     ctx.baseline.record(ctx.classifications, room=args.room or "")
     if args.room:
         ctx.baseline.save_room_scan(args.room, ctx.classifications)
@@ -2187,6 +2303,8 @@ def run_pipeline(ctx: ScanContext) -> None:
         phase5_deep_inspection(ctx)     # skipped in --quick mode
     phase5b_monitor(ctx)            # may pause the WiFi connection
     phase5c_traffic(ctx)            # outbound traffic anomaly detection
+    if ctx.has_nmap:
+        phase5d_credentials(ctx)    # default-password audit (report-only, opt-in)
     phase6_classify(ctx)
 
 

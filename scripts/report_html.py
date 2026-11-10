@@ -31,6 +31,9 @@ import os
 import sys
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from preview import is_preview_uri  # noqa: E402
+
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -79,6 +82,37 @@ def load_devices(path):
                     "recommendation": parts[7],
                 })
     return devices
+
+
+def cred_cell(d, lang):
+    """Default-password audit hit (report-only; scan.py never streams the camera)."""
+    if not d.get("cred_default"):
+        return ""
+    pw = "no password" if d.get("cred_password") == "(empty)" else "a factory-default password"
+    line = f"Login \u201c{d.get('cred_user', 'admin')}\u201d with {pw} is accepted"
+    if d.get("cred_note"):
+        line += f" ({d['cred_note']})"
+    return (
+        '      <div class="detail-cell detail-wide"><span class="detail-label" data-i18n="detail_cred">'
+        + esc(I18N["detail_cred"][lang]) + '</span>'
+        '<span class="detail-value" style="color:' + RISK_COLORS["CRITICAL"] + '">' + esc(line) + '.</span>'
+        '<span class="detail-value" data-i18n="detail_cred_note">' + esc(I18N["detail_cred_note"][lang]) + "</span></div>\n"
+    )
+
+
+def preview_cell(d, lang):
+    """Still from an open stream (scan.py only saves one when no password is set)."""
+    uri = d.get("preview")
+    if not is_preview_uri(uri):
+        return ""
+    stamp = " ".join(filter(None, [d.get("preview_time", ""), d.get("preview_file", "")]))
+    return (
+        '      <div class="detail-cell detail-wide"><span class="detail-label" data-i18n="detail_view">'
+        + esc(I18N["detail_view"][lang]) + '</span>'
+        '<img class="camera-view" src="' + uri + '" alt="">'
+        '<span class="detail-value" data-i18n="detail_view_note">' + esc(I18N["detail_view_note"][lang]) + '</span>'
+        '<span class="detail-value mono-data">' + esc(stamp) + "</span></div>\n"
+    )
 
 
 def load_counts(path):
@@ -167,6 +201,18 @@ I18N = {
     "detail_ports": {"pt": "Portas Abertas", "en": "Open Ports", "es": "Puertos Abiertos"},
     "detail_evidence": {"pt": "Evidência", "en": "Evidence", "es": "Evidencia"},
     "detail_action": {"pt": "Ação", "en": "Action", "es": "Acción"},
+    "detail_cred": {"pt": "Senha padrão de fábrica", "en": "Factory-default password", "es": "Contraseña predeterminada"},
+    "detail_cred_note": {
+        "pt": "Esta câmera aceita um login padrão conhecido, então qualquer pessoa por perto pode vê-la. SpyGuard apenas testa o login; nunca assiste ao vídeo.",
+        "en": "This camera accepts a known default login, so anyone nearby could watch it. SpyGuard only tests the login; it never views the video.",
+        "es": "Esta cámara acepta un inicio de sesión predeterminado, así que cualquiera cerca podría verla. SpyGuard solo prueba el acceso; nunca ve el video.",
+    },
+    "detail_view": {"pt": "O que esta câmera vê", "en": "What this camera sees", "es": "Lo que ve esta cámara"},
+    "detail_view_note": {
+        "pt": "Imagem de um fluxo de vídeo aberto, sem senha. Compare com o cômodo para achar onde a câmera está.",
+        "en": "One frame from a video stream that has no password. Match it to the room to find where the camera is.",
+        "es": "Imagen de una transmisión de video abierta, sin contraseña. Compárela con la habitación para ubicar la cámara.",
+    },
     "detail_none_detected": {"pt": "Nenhuma detectada", "en": "None detected", "es": "Ninguno detectado"},
 
     # -- Devices section
@@ -429,6 +475,8 @@ def generate_html(args):
                 '      <div class="detail-cell detail-wide"><span class="detail-label" data-i18n="detail_action">'
                 + esc(I18N["detail_action"][lang]) + '</span><span class="detail-value action-text" style="color:'
                 + color + ';">' + esc(d["recommendation"]) + "</span></div>\n"
+                + cred_cell(d, lang)
+                + preview_cell(d, lang) +
                 "    </div>\n"
                 "  </div>\n"
                 "</div>"
@@ -1097,6 +1145,14 @@ body {{
 
 .detail-wide {{
   grid-column: 1 / -1;
+}}
+
+.camera-view {{
+  display: block;
+  max-width: min(100%, 480px);
+  margin: 0.3rem 0;
+  border: 1px solid var(--border-line);
+  border-radius: 4px;
 }}
 
 .detail-label {{
