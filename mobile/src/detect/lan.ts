@@ -128,9 +128,30 @@ export async function scanLan(
       const h = await probeHttp(ip, p);
       if (h) http.push(h);
     }
-    findings.push(classifyLanHost(ip, openPorts, rtsp, http, info.gateway));
+    const finding = classifyLanHost(ip, openPorts, rtsp, http, info.gateway);
+    if (rtsp?.openStream) await attachCameraView(finding, ip, rtsp.port, rtsp.openStream);
+    findings.push(finding);
   }
   return findings;
+}
+
+/**
+ * Grab one frame from a camera that streams with no password, so the finder can
+ * show what it sees. Only called for streams probeRtsp() already found open; a
+ * password-protected stream is never touched. Any failure leaves the card as-is.
+ */
+async function attachCameraView(finding: Finding, ip: string, port: number, path: string): Promise<void> {
+  try {
+    const frame = await PrivacyNative?.grabRtspFrame?.(ip, port, path, 12000);
+    if (frame && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(frame)) {
+      finding.preview = frame;
+      finding.recommendation =
+        'The picture shows what this camera sees right now: stand where the view was taken from to find it. ' +
+        finding.recommendation;
+    }
+  } catch {
+    // no decoder, stream unreadable, or needs a password: just show no frame
+  }
 }
 
 export function classifyLanHost(

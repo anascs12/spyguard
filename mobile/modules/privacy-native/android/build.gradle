@@ -17,3 +17,9 @@ android {
     versionName '1.0.0'
   }
 }
+
+dependencies {
+  // Decode one frame from an open RTSP camera for the "what this camera sees" view
+  implementation "androidx.media3:media3-exoplayer:1.9.1"
+  implementation "androidx.media3:media3-exoplayer-rtsp:1.9.1"
+}
